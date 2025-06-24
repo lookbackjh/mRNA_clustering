@@ -1,6 +1,6 @@
 from sklearn.linear_model import LinearRegression
 import pandas as pd
-import statsmodels.api as sm    
+import statsmodels.api as sm  
 class Regression:
     def __init__(self, args, clustered_data, clustering_centers,c_nearest_points): 
         self.args = args
@@ -51,6 +51,14 @@ class Regression:
             X_with_const = sm.add_constant(X)
             
             # OLS 모델을 정의하고 학습시킵니다.
+            # define indexes as row numbers
+
+            X_with_const.index = range(len(X_with_const))  # 인덱스를 0부터 시작하는 정수로 설정
+            Y.index = range(len(Y))  # Y의 인덱스도 동일하게
+            # data type as float
+            X_with_const = X_with_const.astype(float)
+            Y = Y.astype(float)
+
             model = sm.OLS(Y, X_with_const)
             results = model.fit()
 
