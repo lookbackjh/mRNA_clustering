@@ -1,5 +1,6 @@
 from sklearn.linear_model import LinearRegression
 import pandas as pd
+import statsmodels.api as sm    
 class Regression:
     def __init__(self, args, clustered_data, clustering_centers,c_nearest_points): 
         self.args = args
@@ -34,52 +35,47 @@ class Regression:
         for cluster_id, feature_indices in self.c_nearest_points.items():
             print(f"\n>>> 클러스터 {cluster_id}에 대한 회귀 분석 시작...")
 
-            # 1. Y와 X 데이터 분리
-            # 첫 번째 인덱스를 Y (종속 변수)로 사용
+            # 1. Y와 X 데이터 분리 (이전과 동일)
             y_index = feature_indices[0]
-            # 나머지 인덱스를 X (독립 변수)로 사용
-            x_indices = feature_indices[1 : 1 + self.args.num_nearest_points] # 설정한 개수만큼 슬라이싱
+            x_indices = feature_indices[1 : 1 + self.args.num_nearest_points]
 
             Y = self.data_for_regression.iloc[:, y_index]
-            X = self.data_for_regression.iloc[:, x_indices].copy() # SettingWithCopyWarning 방지를 위해 .copy() 사용
-            
-            # 'status' 열을 X에 추가
+            X = self.data_for_regression.iloc[:, x_indices].copy()
             X['status'] = self.data_for_regression['status']
 
-            # 2. 범주형 변수(status) 처리 (One-Hot Encoding)
+            # 2. 범주형 변수 처리 (이전과 동일)
             X = pd.get_dummies(X, columns=['status'], drop_first=True)
 
-            # 3. 선형 회귀 모델 학습
-            model = LinearRegression()
-            model.fit(X.values, Y.values)
+            # 3. [핵심] 선형 회귀 모델 학습 (statsmodels 사용)
+            # statsmodels는 절편(intercept)을 자동으로 추가하지 않으므로, 수동으로 상수항을 추가해야 합니다.
+            X_with_const = sm.add_constant(X)
+            
+            # OLS 모델을 정의하고 학습시킵니다.
+            model = sm.OLS(Y, X_with_const)
+            results = model.fit()
 
-            # 4. 결과 계산 및 저장
-            predictions = model.predict(X.values)
-            r2_score = model.score(X.values, Y.values) # R-squared 값
-            coefficients = model.coef_
-            intercept = model.intercept_
+            # 4. [핵심] 결과 계산 및 저장 (statsmodels 결과 객체 사용)
+            pvalues = results.pvalues
+            r2_score = results.rsquared
+            coefficients = results.params # params가 계수와 절편을 모두 포함
+            intercept = results.params['const'] # 'const' 키로 절편 접근
+            predictions = results.predict(X_with_const)
 
             # 학습된 모델과 결과를 딕셔너리에 저장
-            self.regression_models[cluster_id] = model
+            self.regression_models[cluster_id] = results # results 객체 자체를 저장
             self.regression_results[cluster_id] = {
                 'r2_score': r2_score,
                 'coefficients': coefficients,
+                'pvalues': pvalues,
                 'intercept': intercept,
                 'predictions': predictions
             }
 
-            # 5. 결과 요약 출력
+            # 5. [핵심] 결과 요약 출력 (summary() 함수 사용)
             print(f"--- 클러스터 {cluster_id} 분석 결과 요약 ---")
-            print(f"  - R^2 Score: {r2_score:.4f}")
-            print(f"  - Intercept (절편): {intercept:.4f}")
-            # 계수는 feature 이름과 함께 출력하면 더 보기 좋습니다.
-            coef_summary = {name: round(coef, 4) for name, coef in zip(X.columns, coefficients)}
-            print(f"  - Coefficients (계수): \n{pd.Series(coef_summary)}")
-            print("-" * 40)
+            # summary() 함수는 R-squared, 계수, 표준오차, t-통계량, p-value 등 모든 정보를 담고 있습니다.
+            print(results.summary())
+            print("-" * 80)
 
-
-
-
-        # Prepare the features and target variable
-    
+        print("\n모든 클러스터에 대한 회귀 분석이 완료되었습니다.")
 
