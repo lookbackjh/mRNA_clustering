@@ -42,29 +42,20 @@ class Clustering:
         X = self.data
 
         self.data['cluster'] = kmeans.fit_predict(X)
-        self.cluster_centers = kmeans.cluster_centers_
+        self.cluster_centers = np.array(kmeans.cluster_centers_)
 
-        # --- [요청사항 1은 이전과 동일] ---
-        # (이해를 돕기 위해 생략)
-        feature_names = X.columns
+        print(self.cluster_centers[0])
+        # self.cluster_centers_feature_num=[]
 
-        for i, center in enumerate(self.cluster_centers):
-            # 중심점에서 값이 가장 큰 feature의 인덱스를 찾습니다.
-            most_important_feature_index = np.argmax(center)
-            # 해당 인덱스의 feature 이름과 값을 가져옵니다.
-            most_important_feature_name = feature_names[most_important_feature_index]
-            most_important_feature_value = center[most_important_feature_index]
-
-            print(f"\n[클러스터 번호 {i}]")
-            print(f"  > 가장 중요한 Feature: '{most_important_feature_name}' (인덱스: {most_important_feature_index})")
-            print(f"  > 해당 Feature의 중심점 값: {most_important_feature_value:.4f}")
-
-            # (추가) 상위 5개 feature를 보고 싶을 경우
-            top_5_feature_indices = np.argsort(center)[-5:][::-1] # 값이 큰 순서대로 5개 인덱스
-            top_5_features = feature_names[top_5_feature_indices]
-            print(f"  > 상위 5개 중요 Feature: {top_5_features.tolist()}")
+        # # --- [요청사항 1은 이전과 동일] ---
+        # for i in self.cluster_centers:
+        #     for j in range(len(self.data)):
+        #         if np.allclose(i.reshape(-1), self.data.iloc[j, :29].values.reshape(-1)):
+        #             self.cluster_centers_feature_num.append(j)
 
 
+    
+        # print(self.cluster_centers_feature_num)
         # --- [요청사항 2 수정] 각 클러스터 중심에 가장 가까운 샘플 10개를 딕셔너리로 저장 ---
         print("\n--- [요청사항 2] 각 클러스터 중심에 가장 가까운 샘플 10개 (딕셔너리 저장) ---")
 
@@ -83,11 +74,11 @@ class Clustering:
             nearest_sample_indices = np.argsort(distances_to_center_i)
             
             # 가장 가까운 10개의 샘플 인덱스를 가져옵니다.
-            top_10_nearest_indices = nearest_sample_indices[:10]
+            top_nearest_indices = nearest_sample_indices[:self.args.num_nearest_points]
             
             # [핵심] 딕셔너리에 {클러스터 번호: 인덱스 리스트} 형태로 저장합니다.
             # .tolist()를 사용하여 NumPy 배열을 일반 파이썬 리스트로 변환합니다.
-            self.nearest_samples_dict[i] = top_10_nearest_indices.tolist()
+            self.nearest_samples_dict[i] = top_nearest_indices.tolist()
 
         # 최종적으로 생성된 딕셔너리를 출력하여 확인합니다.
         print("최종 저장된 딕셔너리:")
