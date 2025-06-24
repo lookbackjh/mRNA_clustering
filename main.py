@@ -34,7 +34,7 @@ def main():
 
     # Now I want to do Regression based on the clustering centerings. 
     regression = Regression(args, c_result_data, c_centers,c_nearest_points)
-    regression.process_for_regression()  # Process data for regression
+    regression.do_regression()  # Process data for regression
 
 
 if __name__ == "__main__":

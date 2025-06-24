@@ -8,7 +8,7 @@ class Regression:
         self.clustering_centers = clustering_centers
         self.c_nearest_points = c_nearest_points
 
-    def process_for_regression(self):
+    def do_regression(self):
         # I want to make the columns vertically,  for example, for first 10 column the next 10 columns should be at the end of the first 10 columns and so on.
         # the data i in shape of n_features * n_samples, and the samples consists of 3 categories. 
         # what I want to do is to make data in to shape of n_features * n_samples * n_categories 
