@@ -8,10 +8,11 @@ class Regression:
         self.clustering_centers = clustering_centers
         self.c_nearest_points = c_nearest_points
 
-    def do_regression(self):
-        # I want to make the columns vertically,  for example, for first 10 column the next 10 columns should be at the end of the first 10 columns and so on.
-        # the data i in shape of n_features * n_samples, and the samples consists of 3 categories. 
-        # what I want to do is to make data in to shape of n_features * n_samples * n_categories 
+    def get_data_for_regression(self):
+        """
+        Returns the data prepared for regression.
+        """
+
         data_normal=self.clustered_data.iloc[:, :10]
         data_abnormal=self.clustered_data.iloc[:, 10:19]
         data_alzheimer=self.clustered_data.iloc[:, 19:29]
@@ -25,8 +26,16 @@ class Regression:
         # first 10 columns are normal, next 9 columns are abnormal and the last 10 columns are alzheimer.
         self.data_for_regression['status'] = ['normal'] * data_normal.shape[0] + ['abnormal'] * data_abnormal.shape[0] + ['alzheimer'] * data_alzheimer.shape[0]
 
+        return self.data_for_regression
+
+    def do_regression(self):
+        # I want to make the columns vertically,  for example, for first 10 column the next 10 columns should be at the end of the first 10 columns and so on.
+        # the data i in shape of n_features * n_samples, and the samples consists of 3 categories. 
+        # what I want to do is to make data in to shape of n_features * n_samples * n_categories 
+
         # Now I want to do regression based on the clustering centers.
         #self.model = LinearRegression()
+        self.data_for_regression = self.get_data_for_regression()  # 데이터 준비
 
         self.regression_models = {}
         self.regression_results = {}

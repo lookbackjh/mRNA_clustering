@@ -11,8 +11,9 @@ def parse_args():
     parser.add_argument('--small_value', type=float, default=1e-6, help='Small value to replace zeros in the data')
     parser.add_argument('--num_clusters', type=int, default=5, help='Number of clusters for clustering algorithms')
     parser.add_argument('--num_nearest_points', type=int, default=11, help='Number of nearest points to consider for each cluster center')
+    parser.add_argument('--normalization_method', type=str, default='log', help='Normalization method to apply to the data, options: log, clr, naive')
     return parser.parse_args()
-
+    
 
 def main():
     args = parse_args() 
