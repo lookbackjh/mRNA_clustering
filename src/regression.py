@@ -2,11 +2,11 @@ from sklearn.linear_model import LinearRegression
 import pandas as pd
 import statsmodels.api as sm  
 class Regression:
-    def __init__(self, args, clustered_data, clustering_centers,c_nearest_points): 
+    def __init__(self, args, clustering): 
         self.args = args
-        self.clustered_data = clustered_data
-        self.clustering_centers = clustering_centers
-        self.c_nearest_points = c_nearest_points
+        self.clustered_data = clustering.data # Get the clustered data from the clustering object
+        self.clustering_centers = clustering.cluster_centers # Get the clustering centers
+        self.c_nearest_points = clustering.nearest_samples_dict  # Get the nearest points for each cluster
 
     def get_data_for_regression(self):
         """
@@ -27,6 +27,9 @@ class Regression:
         self.data_for_regression['status'] = ['normal'] * data_normal.shape[0] + ['abnormal'] * data_abnormal.shape[0] + ['alzheimer'] * data_alzheimer.shape[0]
 
         return self.data_for_regression
+    
+    def split_data(self):
+        pass
 
     def do_regression(self):
         # I want to make the columns vertically,  for example, for first 10 column the next 10 columns should be at the end of the first 10 columns and so on.

@@ -18,8 +18,16 @@ class Preprocess:
         self.replace_zeros(self.args.small_value)
         self.data_normalization()
         # Apply transformations if needed
-        self.data = self.simple_log_transform()
-        #self.data = self.clr_transform()
+
+        if self.args.normalization_method == 'naive':
+            pass
+        elif self.args.normalization_method == 'log':
+            # Apply log transformation
+            self.data = self.simple_log_transform()
+        elif self.args.normalization_method == 'clr':
+            # Apply CLR transformation
+            self.data = self.clr_transform()
+
 
         return self.data
     
