@@ -13,7 +13,10 @@ class Preprocess:
         # Load data from Excel file
         self.data = pd.read_excel(self.data_path, sheet_name='data2', header=0)
         # Select the last 30 columns
+        self.feature_dict=self.data['Mature_ID'].to_dict() 
         self.data = self.data.iloc[:, -29:]
+
+         # Store the feature names in a dictionary
         # Replace zeros with a small value
         self.replace_zeros(self.args.small_value)
         self.data_normalization()

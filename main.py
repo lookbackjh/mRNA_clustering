@@ -26,11 +26,7 @@ def main():
     # Check optimal number of clusters
     #clustering.optimal_cluster_num_check(max_clusters=20)
     c_result_data=clustering.kmeans(n_clusters=args.num_clusters)
-    c_centers = clustering.cluster_centers # get the clustering centers.  
-    # Please note that the index of the c_centers corresponds to the cluster that the data(center) belongs to.
-    c_nearest_points=clustering.nearest_samples_dict
-    print("Clustering Result:")
-    print(c_nearest_points)
+    # c_centers = clustering.cluster_centers # get the clustering centers.  
 
 
     # Now I want to do Regression based on the clustering centerings. 
