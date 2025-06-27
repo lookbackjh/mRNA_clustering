@@ -17,6 +17,7 @@ def parse_args():
     parser.add_argument('--distance_metric', type=str, default='pearson', help='euclidean, spearman, pearson, cosine, or correlation distance metric')
     parser.add_argument('--embedding_num', type=int, default=10, help='Number of dimensions for low-dimensional representation')
     parser.add_argument('--embedding_method', type=str, default='pca', help='Method for low-dimensional representation, options: pca, laplacian')
+    parser.add_argument('--count_threshold', type=float, default=0.1, help='Threshold for count-based regression')
 
     return parser.parse_args()
     
