@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from src.preprocess import Preprocess
 from src.clustering import Clustering
+from src.feature_selector import FDRFeatureSelector
 
 from src.regression import Regression
 import argparse
@@ -11,7 +12,12 @@ def parse_args():
     parser.add_argument('--small_value', type=float, default=1e-6, help='Small value to replace zeros in the data')
     parser.add_argument('--num_clusters', type=int, default=5, help='Number of clusters for clustering algorithms')
     parser.add_argument('--num_nearest_points', type=int, default=11, help='Number of nearest points to consider for each cluster center')
-    parser.add_argument('--normalization_method', type=str, default='log', help='Normalization method to apply to the data, options: log, clr, naive')
+    parser.add_argument('--normalization_method', type=str, default='naive', help='Normalization method to apply to the data, options: log, clr, naive')
+    parser.add_argument('--fdr_threshold', type=float, default=0.1, help='FDR threshold for feature selection')
+    parser.add_argument('--distance_metric', type=str, default='pearson', help='euclidean, spearman, pearson, cosine, or correlation distance metric')
+    parser.add_argument('--embedding_num', type=int, default=10, help='Number of dimensions for low-dimensional representation')
+    parser.add_argument('--embedding_method', type=str, default='pca', help='Method for low-dimensional representation, options: pca, laplacian')
+
     return parser.parse_args()
     
 
@@ -20,16 +26,14 @@ def main():
     # Load data from Excel file
     preprocessor = Preprocess(args)
     data = preprocessor.get_processed_data() # data would be shape of n_features x n_samples
-    print("Processed Data:")
-    print(data)
+
+    fdr_feature_selector = FDRFeatureSelector(args, data,preprocessor.feature_dict)
+    fdr_feature_selector.select_features()  # Select features based on FDR
+    fdr_feature_selector.display_sorted_features()  # Display sorted features by p-value
+
     clustering= Clustering(args, data)
-    # Check optimal number of clusters
-    #clustering.optimal_cluster_num_check(max_clusters=20)
-    c_result_data=clustering.kmeans(n_clusters=args.num_clusters)
-    # c_centers = clustering.cluster_centers # get the clustering centers.  
+    clustering.kmeans(n_clusters=args.num_clusters)  # Perform KMeans clustering
 
-
-    # Now I want to do Regression based on the clustering centerings. 
     regression = Regression(args,clustering)
     regression.do_regression()  # Process data for regression
 

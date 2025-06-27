@@ -8,6 +8,54 @@ class Clustering:
         self.args = args
         self.data = data
 
+    def calculate_distance_matrix(self):
+        """
+        Calculate the distance matrix for the data.
+        """
+        # Assuming self.data is a DataFrame with shape (n_samples, n_features)
+        # Convert DataFrame to NumPy array for distance calculation
+        data_array = self.data.values
+        # Calculate the distance matrix using Euclidean distance
+        if self.args.distance_metric == 'euclidean':
+            # Use pdist to calculate pairwise distances and then convert to square form
+            distance_matrix = distance.pdist(data_array, metric='euclidean')
+            distance_matrix = distance.squareform(distance_matrix)
+        elif self.args.distance_metric == 'pearson':
+            # since pdist does not support 'spearman', we need to use a different approach
+            from scipy.stats import spearmanr
+            # Calculate the pairwise Spearman correlation
+            corr_matrix = self.data.T.corr(method='spearman')
+            # Convert correlation to distance
+            distance_matrix = 1 - corr_matrix
+        elif self.args.distance_metric == 'spearman':
+            # Calculate the pairwise Spearman correlation
+            from scipy.stats import spearmanr
+            corr_matrix = self.data.T.corr(method='spearman')
+            # Convert correlation to distance
+            distance_matrix = 1 - corr_matrix
+        else:
+            raise ValueError(f"Unsupported distance metric: {self.args.distance_metric}")
+        return distance_matrix
+    
+    def low_dimensional_representation(self):
+
+        #using distance matrix, convert 249*249 into 249*embedding_num
+        # iuse pca
+        from sklearn.decomposition import PCA
+        pca = PCA(n_components=self.args.embedding_num)
+        # Fit PCA on the distance matrix
+        pca.fit(self.data)
+        # Transform the data to low-dimensional representation
+        low_dimensional_data = pca.transform(self.data)
+        # Convert the low-dimensional data back to a DataFrame
+        self.low_dimensional_df = pd.DataFrame(low_dimensional_data, columns=[f'PC{i+1}' for i in range(self.args.embedding_num)])
+        # Add the original index as a column
+        print("Low-dimensional representation shape:", self.low_dimensional_df)
+
+
+
+        return 
+
     def optimal_cluster_num_check(self, max_clusters=10):
 
         import numpy as np
@@ -36,26 +84,22 @@ class Clustering:
 
     def kmeans(self, n_clusters=3):
         # data is in shape of n_features x n_samples, I want to do clustering based on the features. (possibley 249*29)
+
+        distance_matrix = self.calculate_distance_matrix()
+        self.low_dimensional_representation()  # Get low-dimensional representation
+
+
+
         kmeans = KMeans(n_clusters=n_clusters, init='k-means++', n_init=10, random_state=42)
 
         # 클러스터링에 사용할 수치형 데이터
-        X = self.data
+        X = self.low_dimensional_df
 
         self.data['cluster'] = kmeans.fit_predict(X)
         self.cluster_centers = np.array(kmeans.cluster_centers_)
 
         print(self.cluster_centers[0])
-        # self.cluster_centers_feature_num=[]
 
-        # # --- [요청사항 1은 이전과 동일] ---
-        # for i in self.cluster_centers:
-        #     for j in range(len(self.data)):
-        #         if np.allclose(i.reshape(-1), self.data.iloc[j, :29].values.reshape(-1)):
-        #             self.cluster_centers_feature_num.append(j)
-
-
-    
-        # print(self.cluster_centers_feature_num)
         # --- [요청사항 2 수정] 각 클러스터 중심에 가장 가까운 샘플 10개를 딕셔너리로 저장 ---
         print("\n--- [요청사항 2] 각 클러스터 중심에 가장 가까운 샘플 10개 (딕셔너리 저장) ---")
 
@@ -63,7 +107,7 @@ class Clustering:
         self.nearest_samples_dict = {}
 
         # 모든 데이터 포인트와 클러스터 중심점 간의 유클리드 거리를 계산합니다.
-        dists = distance.cdist(self.data.iloc[:,:29], self.cluster_centers)
+        dists = distance.cdist(self.low_dimensional_df.iloc[:,:], self.cluster_centers)
 
         # 각 클러스터에 대해 반복합니다.
         for i in range(n_clusters):
