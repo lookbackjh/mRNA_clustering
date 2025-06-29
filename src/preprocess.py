@@ -20,8 +20,13 @@ class Preprocess:
             processed_data = self._log1p_transform(processed_data)
         elif self.args.normalization_method == 'clr':
             processed_data = self._clr_transform(processed_data)
-        elif self.args.normalization_method == 'naive':
+        elif self.args.normalization_method == 'prob':
             processed_data = self._sum_normalize_columns(processed_data)
+        elif self.args.normalization_method == 'naive':
+            pass  # No transformation needed, just use the original data
+        else:
+            raise ValueError(f"Unsupported normalization method: {self.args.normalization_method}")
+        
 
         # 최종적으로 self.data에 할당하거나 바로 반환
         self.data = processed_data
