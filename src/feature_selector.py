@@ -29,13 +29,11 @@ class FDRFeatureSelector:
         Performs t-tests and FDR correction across three group comparisons
         using vectorized operations for high performance.
         """
-        # 그룹 지정 방식은 요청에 따라 원안을 그대로 유지합니다.
         data_normal = self.data.iloc[:, :10]
         data_abnormal = self.data.iloc[:, 10:19]
         data_alzheimer = self.data.iloc[:, 19:29]
 
         # --- Vectorized t-test (for-loop in do_ttest is removed) ---
-        # axis=1을 사용하여 각 행(feature)에 대해 t-test를 한 번에 수행합니다.
         _, comp1_pvals = ttest_ind(data_normal, data_abnormal, axis=1, equal_var=False)
         _, comp2_pvals = ttest_ind(data_normal, data_alzheimer, axis=1, equal_var=False)
         _, comp3_pvals = ttest_ind(data_abnormal, data_alzheimer, axis=1, equal_var=False)

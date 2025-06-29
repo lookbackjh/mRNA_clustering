@@ -3,7 +3,10 @@ from sklearn.metrics import silhouette_score
 import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA
+from sklearn.manifold import SpectralEmbedding
+import matplotlib.pyplot as plt
 from scipy.spatial import distance
+from scipy.stats import spearmanr   
 class Clustering:
     def __init__(self,args, data):
         self.args = args
@@ -21,16 +24,17 @@ class Clustering:
             # Use pdist to calculate pairwise distances and then convert to square form
             distance_matrix = distance.pdist(data_array, metric='euclidean')
             self.distance_matrix = distance.squareform(distance_matrix)
+       
         elif self.args.distance_metric == 'pearson':
             # since pdist does not support 'spearman', we need to use a different approach
-            from scipy.stats import spearmanr
             # Calculate the pairwise Spearman correlation
-            corr_matrix = self.data.T.corr(method='spearman')
+            corr_matrix = self.data.T.corr(method='pearson')
             # Convert correlation to distance
             self.distance_matrix = 1 - corr_matrix
+
         elif self.args.distance_metric == 'spearman':
             # Calculate the pairwise Spearman correlation
-            from scipy.stats import spearmanr
+
             corr_matrix = self.data.T.corr(method='spearman')
             # Convert correlation to distance
             self.distance_matrix = 1 - corr_matrix
@@ -52,12 +56,19 @@ class Clustering:
             self.low_dimensional_df = pd.DataFrame(low_dimensional_data, columns=[f'PC{i+1}' for i in range(self.args.embedding_num)])
             # Add the original index as a column
             print("Low-dimensional representation shape:", self.low_dimensional_df)
-            
+
         elif self.args.embedding_method == 'laplacian':
-            from sklearn.manifold import SpectralEmbedding
-            embedding = SpectralEmbedding(n_components=self.args.embedding_num, affinity='precomputed')
-            low_dimensional_data = embedding.fit_transform(self.distance_matrix)
-            self.low_dimensional_df = pd.DataFrame(low_dimensional_data, columns=[f'LE{i+1}' for i in range(self.args.embedding_num)])
+            # 1. 거리 행렬을 유사도 행렬로 변환합니다.
+            # sigma 값은 데이터 스케일에 따라 조정해야 하는 중요한 하이퍼파라미터입니다.
+            # 거리의 평균값 등을 기준으로 설정해 볼 수 있습니다.
+            sigma = self.args.sigma if hasattr(self.args, 'sigma') else 1.0 
+            affinity_matrix = np.exp(-self.distance_matrix ** 2 / (2. * sigma ** 2)) #rbf kernel
+            
+            embedding = SpectralEmbedding(n_components=self.args.embedding_num, 
+                                        affinity='precomputed', # 'precomputed'도 가능하지만, 이쪽이 더 안정적일 수 있음
+                                        random_state=42)
+            low_dimensional_data = embedding.fit_transform(affinity_matrix)
+            self.low_dimensional_df = pd.DataFrame(low_dimensional_data, columns=[f'Dim{i+1}' for i in range(self.args.embedding_num)])
         else:
             raise ValueError(f"Unsupported embedding method: {self.args.embedding_method}")
 
@@ -66,8 +77,6 @@ class Clustering:
         return 
 
     def optimal_cluster_num_check(self, max_clusters=10):
-
-        import numpy as np
         # I just want you to check the drawing of the elbow method and silhouette score
         silhouette_scores = []
         inertia = []
@@ -78,7 +87,7 @@ class Clustering:
             silhouette_avg = silhouette_score(self.data, cluster_labels)
             silhouette_scores.append(silhouette_avg)
         # Plotting the inertia
-        import matplotlib.pyplot as plt
+
         plt.figure(figsize=(12, 6))
         plt.plot(range(2, max_clusters + 1), inertia, marker='o')
         plt.title('Elbow Method')
@@ -107,8 +116,8 @@ class Clustering:
 
         print(self.cluster_centers[0])
 
-        # --- [요청사항 2 수정] 각 클러스터 중심에 가장 가까운 샘플 10개를 딕셔너리로 저장 ---
-        print("\n--- [요청사항 2] 각 클러스터 중심에 가장 가까운 샘플 10개 (딕셔너리 저장) ---")
+        # --- [요청사항 2 ] 각 클러스터 중심에 가장 가까운 샘플 10개를 딕셔너리로 저장 ---
+        print("\n--- [2] 각 클러스터 중심에 가장 가까운 샘플 10개 (딕셔너리 저장) ---")
 
         # 결과를 저장할 빈 딕셔너리를 생성합니다.
         self.nearest_samples_dict = {}

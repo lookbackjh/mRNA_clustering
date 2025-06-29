@@ -12,7 +12,7 @@ def parse_args():
     parser.add_argument('--small_value', type=float, default=1e-6, help='Small value to replace zeros in the data')
     parser.add_argument('--num_clusters', type=int, default=5, help='Number of clusters for clustering algorithms')
     parser.add_argument('--num_nearest_points', type=int, default=11, help='Number of nearest points to consider for each cluster center')
-    parser.add_argument('--normalization_method', type=str, default='naive', help='Normalization method to apply to the data, options: log, clr, naive')
+    parser.add_argument('--normalization_method', type=str, default='log_naive', help='Normalization method to apply to the data, options: log, clr, naive')
     parser.add_argument('--fdr_threshold', type=float, default=0.1, help='FDR threshold for feature selection')
     parser.add_argument('--distance_metric', type=str, default='pearson', help='euclidean, spearman, pearson, cosine, or correlation distance metric')
     parser.add_argument('--embedding_num', type=int, default=10, help='Number of dimensions for low-dimensional representation')
@@ -38,7 +38,7 @@ def main():
     clustering.kmeans(n_clusters=args.num_clusters)  # Perform KMeans clustering
 
     regression = Regression(args,clustering,preprocessor.feature_dict)
-    regression.do_regression()  # Process data for regression
+    regression.run_regression_analysis()  # Process data for regression
 
 
 if __name__ == "__main__":

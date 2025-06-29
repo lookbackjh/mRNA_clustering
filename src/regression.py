@@ -11,7 +11,7 @@ class Regression:
 
 
 
-    def get_data_for_regression(self):
+    def _get_data_for_regression(self):
         """
         Returns the data prepared for regression.
         """
@@ -31,17 +31,17 @@ class Regression:
 
         return self.data_for_regression
     
-    def split_data(self):
+    def _split_data(self):
         pass
 
-    def do_regression(self):
+    def run_regression_analysis(self):
         # I want to make the columns vertically,  for example, for first 10 column the next 10 columns should be at the end of the first 10 columns and so on.
         # the data i in shape of n_features * n_samples, and the samples consists of 3 categories. 
         # what I want to do is to make data in to shape of n_features * n_samples * n_categories 
 
         # Now I want to do regression based on the clustering centers.
         #self.model = LinearRegression()
-        self.data_for_regression = self.get_data_for_regression()  # 데이터 준비
+        self.data_for_regression = self._get_data_for_regression()  # 데이터 준비
 
         self.regression_models = {}
         self.regression_results = {}
@@ -106,4 +106,3 @@ class Regression:
             print("-" * 80)
 
         print("\n모든 클러스터에 대한 회귀 분석이 완료되었습니다.")
-

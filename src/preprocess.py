@@ -1,54 +1,42 @@
 import pandas as pd
 import numpy as np
-
+from scipy.stats import gmean
 class Preprocess:
-    def __init__(self,args):
+    # ... __init__ ...
+    def __init__(self, args):
         self.args = args
         self.data_path = args.data_path
-
-    def replace_zeros(self, small_value=1e-6):
-        self.data = self.data.replace(0, small_value)
+        self.feature_dict = {}
 
     def get_processed_data(self):
-        # Load data from Excel file
-        self.data = pd.read_excel(self.data_path, sheet_name='data2', header=0)
-        # Select the last 30 columns
-        self.feature_dict=self.data['Mature_ID'].to_dict() 
-        self.data = self.data.iloc[:, -29:]
-
-         # Store the feature names in a dictionary
-        # Replace zeros with a small value
-        self.replace_zeros(self.args.small_value)
-
+        data = pd.read_excel(self.data_path, sheet_name='data2', header=0)
+        self.feature_dict = data['Mature_ID'].to_dict()
         
+        # 원본 데이터를 계속해서 변수에 담아 전달
+        processed_data = data.iloc[:, -29:]
+        processed_data = self._replace_zeros(processed_data, self.args.small_value)
 
-
-        self.data_normalization()
-        # Apply transformations if needed
-
-        if self.args.normalization_method == 'naive':
-            pass
-        elif self.args.normalization_method == 'log':
-            # Apply log transformation
-            self.data = self.simple_log_transform()
+        if self.args.normalization_method == 'log_naive':
+            processed_data = self._log1p_transform(processed_data)
         elif self.args.normalization_method == 'clr':
-            # Apply CLR transformation
-            self.data = self.clr_transform()
+            processed_data = self._clr_transform(processed_data)
+        elif self.args.normalization_method == 'naive':
+            processed_data = self._sum_normalize_columns(processed_data)
 
+        # 최종적으로 self.data에 할당하거나 바로 반환
+        self.data = processed_data
+        return self.data
 
-        return self.data
-    
-    def clr_transform(self):
-        # Apply CLR transformation
-        self.data = np.log(self.data / self.data.mean())
-        return self.data
-    
-    def simple_log_transform(self):
-        # Apply simple log transformation
-        self.data = -np.log(self.data)
-        return self.data
-    
-    def data_normalization(self):
-        # Normalize the data
-        self.data = self.data.div(self.data.sum(axis=0), axis=1)
-        return self.data
+# internal methods for transformations
+    def _replace_zeros(self, df, small_value):
+        return df.replace(0, small_value)
+
+    def _clr_transform(self, df):
+        geometric_mean = gmean(df, axis=1).reshape(-1, 1)
+        return np.log(df.divide(geometric_mean, axis=0))
+
+    def _log1p_transform(self, df):
+        return np.log1p(df)
+
+    def _sum_normalize_columns(self, df):
+        return df.div(df.sum(axis=0), axis=1)
