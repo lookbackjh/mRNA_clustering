@@ -24,6 +24,16 @@ class Preprocess:
             processed_data = self._sum_normalize_columns(processed_data)
         elif self.args.normalization_method == 'naive':
             pass  # No transformation needed, just use the original data
+        elif self.args.normalization_method == 'log_entropy':
+            result = pd.DataFrame(0.0, index=processed_data.index, columns=processed_data.columns)
+
+            # 2. 0보다 큰 값들만 선택하는 마스크(mask)를 만듭니다.
+            positive_mask = processed_data > 0
+
+            # 3. 마스크가 True인 위치에만 로그 변환을 적용하여 값을 채워 넣습니다.
+            result[positive_mask] = -np.log(processed_data[positive_mask])
+
+            processed_data = result
         else:
             raise ValueError(f"Unsupported normalization method: {self.args.normalization_method}")
         

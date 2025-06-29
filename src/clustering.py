@@ -6,147 +6,131 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import SpectralEmbedding
 import matplotlib.pyplot as plt
 from scipy.spatial import distance
-from scipy.stats import spearmanr   
+
 class Clustering:
-    def __init__(self,args, data):
+    def __init__(self, args, data):
+        """
+        객체 생성 시에는 입력값만 저장하고, 실제 계산은 하지 않습니다.
+        결과를 캐싱할 비공개(private) 속성들을 None으로 초기화합니다.
+        """
         self.args = args
-        self.data = data
+        self.data = data.copy() # 원본 데이터 수정을 방지하기 위해 복사본 사용
+        
+        # ★ 1. 결과물을 캐싱하기 위한 '비공개' 속성들을 선언합니다.
+        self._distance_matrix = None
+        self._low_dimensional_df = None
+        
+        # kmeans의 결과물은 파라미터(n_clusters)에 따라 달라지므로 property로 만들지 않습니다.
+        self.cluster_labels = None
+        self.cluster_centers = None
+        self.nearest_samples_dict = None
 
-    def calculate_distance_matrix(self):
+    @property
+    def distance_matrix(self):
         """
-        Calculate the distance matrix for the data.
+        'distance_matrix' 속성에 처음 접근할 때만 실제 계산을 수행합니다.
         """
-        # Assuming self.data is a DataFrame with shape (n_samples, n_features)
-        # Convert DataFrame to NumPy array for distance calculation
-        data_array = self.data.values
-        # Calculate the distance matrix using Euclidean distance
-        if self.args.distance_metric == 'euclidean':
-            # Use pdist to calculate pairwise distances and then convert to square form
-            distance_matrix = distance.pdist(data_array, metric='euclidean')
-            self.distance_matrix = distance.squareform(distance_matrix)
-       
-        elif self.args.distance_metric == 'pearson':
-            # since pdist does not support 'spearman', we need to use a different approach
-            # Calculate the pairwise Spearman correlation
-            corr_matrix = self.data.T.corr(method='pearson')
-            # Convert correlation to distance
-            self.distance_matrix = 1 - corr_matrix
-
-        elif self.args.distance_metric == 'spearman':
-            # Calculate the pairwise Spearman correlation
-
-            corr_matrix = self.data.T.corr(method='spearman')
-            # Convert correlation to distance
-            self.distance_matrix = 1 - corr_matrix
-        else:
-            raise ValueError(f"Unsupported distance metric: {self.args.distance_metric}")
-    
-    def low_dimensional_representation(self):
-
-        #using distance matrix, convert 249*249 into 249*embedding_num
-        # iuse pca
-        if self.args.embedding_method =='pca':
-
-            pca = PCA(n_components=self.args.embedding_num)
-            # Fit PCA on the distance matrix
-            pca.fit(self.distance_matrix)
-            # Transform the data to low-dimensional representation
-            low_dimensional_data = pca.transform(self.distance_matrix)
-            # Convert the low-dimensional data back to a DataFrame
-            self.low_dimensional_df = pd.DataFrame(low_dimensional_data, columns=[f'PC{i+1}' for i in range(self.args.embedding_num)])
-            # Add the original index as a column
-            print("Low-dimensional representation shape:", self.low_dimensional_df)
-
-        elif self.args.embedding_method == 'laplacian':
-            # 1. 거리 행렬을 유사도 행렬로 변환합니다.
-            # sigma 값은 데이터 스케일에 따라 조정해야 하는 중요한 하이퍼파라미터입니다.
-            # 거리의 평균값 등을 기준으로 설정해 볼 수 있습니다.
-            sigma = self.args.sigma if hasattr(self.args, 'sigma') else 1.0 
-            affinity_matrix = np.exp(-self.distance_matrix ** 2 / (2. * sigma ** 2)) #rbf kernel
+        # ★ 2. 캐시된 결과가 있는지 확인
+        if self._distance_matrix is None:
+            print("--- Computing Distance Matrix (this happens only once) ---")
+            data_array = self.data.values
             
-            embedding = SpectralEmbedding(n_components=self.args.embedding_num, 
-                                        affinity='precomputed', # 'precomputed'도 가능하지만, 이쪽이 더 안정적일 수 있음
-                                        random_state=42)
-            low_dimensional_data = embedding.fit_transform(affinity_matrix)
-            self.low_dimensional_df = pd.DataFrame(low_dimensional_data, columns=[f'Dim{i+1}' for i in range(self.args.embedding_num)])
-        else:
-            raise ValueError(f"Unsupported embedding method: {self.args.embedding_method}")
+            if self.args.distance_metric == 'euclidean':
+                dist_mat = distance.pdist(data_array, metric='euclidean')
+                self._distance_matrix = distance.squareform(dist_mat)
+            elif self.args.distance_metric in ['pearson', 'spearman']:
+                corr_matrix = self.data.T.corr(method=self.args.distance_metric)
+                self._distance_matrix = 1 - corr_matrix.values # DataFrame -> numpy array
+            else:
+                raise ValueError(f"Unsupported distance metric: {self.args.distance_metric}")
+        
+        # ★ 3. 캐시된 결과를 반환
+        return self._distance_matrix
 
+    @property
+    def low_dimensional_df(self):
+        """
+        'low_dimensional_df' 속성에 처음 접근할 때만 실제 계산을 수행합니다.
+        이 과정에서 self.distance_matrix가 필요하면, 해당 property가 자동으로 호출됩니다.
+        """
+        if self._low_dimensional_df is None:
+            print("--- Computing Low-Dimensional Representation (this happens only once) ---")
+            
+            if self.args.embedding_method == 'pca':
+                pca = PCA(n_components=self.args.embedding_num)
+                # ★ 4. '연쇄 반응': self.distance_matrix에 접근하면 위 property가 실행됩니다.
+                low_dim_data = pca.fit_transform(self.distance_matrix)
+                self._low_dimensional_df = pd.DataFrame(low_dim_data, columns=[f'PC{i+1}' for i in range(self.args.embedding_num)])
 
+            elif self.args.embedding_method == 'laplacian':
+                sigma = self.args.sigma if hasattr(self.args, 'sigma') else 1.0
+                affinity_matrix = np.exp(-self.distance_matrix ** 2 / (2. * sigma ** 2))
+                embedding = SpectralEmbedding(n_components=self.args.embedding_num, affinity='precomputed', random_state=42)
+                low_dim_data = embedding.fit_transform(affinity_matrix)
+                self._low_dimensional_df = pd.DataFrame(low_dim_data, columns=[f'Dim{i+1}' for i in range(self.args.embedding_num)])
+            else:
+                raise ValueError(f"Unsupported embedding method: {self.args.embedding_method}")
 
-        return 
+        return self._low_dimensional_df
 
     def optimal_cluster_num_check(self, max_clusters=10):
-        # I just want you to check the drawing of the elbow method and silhouette score
+        """
+        최적의 클러스터 수를 확인합니다. 
+        내부에서 self.low_dimensional_df에 접근하는 순간 모든 계산이 자동으로 처리됩니다.
+        """
+        print("\n--- Checking for Optimal Number of Clusters ---")
         silhouette_scores = []
         inertia = []
+        
+        # ★ 5. 사용자는 그냥 속성을 호출하면 됩니다. 계산은 알아서 처리됩니다.
+        embedding_data = self.low_dimensional_df
+        
         for n_clusters in range(2, max_clusters + 1):
-            kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-            cluster_labels = kmeans.fit_predict(self.data)
+            kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+            cluster_labels = kmeans.fit_predict(embedding_data)
             inertia.append(kmeans.inertia_)
-            silhouette_avg = silhouette_score(self.data, cluster_labels)
+            silhouette_avg = silhouette_score(embedding_data, cluster_labels)
             silhouette_scores.append(silhouette_avg)
-        # Plotting the inertia
-
-        plt.figure(figsize=(12, 6))
+            
+        plt.figure(figsize=(12, 5))
+        plt.subplot(1, 2, 1)
         plt.plot(range(2, max_clusters + 1), inertia, marker='o')
         plt.title('Elbow Method')
         plt.xlabel('Number of clusters')
         plt.ylabel('Inertia')
         plt.grid(True)
-        plt.show()
-        # save the inertia plot
-        plt.savefig('figures/elbow_method.png')
-        # Determine the optimal number of clusters based on silhouette score
+
+        plt.subplot(1, 2, 2)
+        plt.plot(range(2, max_clusters + 1), silhouette_scores, marker='o', color='r')
+        plt.title('Silhouette Score')
+        plt.xlabel('Number of clusters')
+        plt.ylabel('Silhouette Score')
+        plt.grid(True)
         
+        plt.tight_layout()
+        plt.show()
 
     def kmeans(self, n_clusters=3):
-        # data is in shape of n_features x n_samples, I want to do clustering based on the features. (possibley 249*29)
-
-        distance_matrix = self.calculate_distance_matrix()
-        self.low_dimensional_representation()  # Get low-dimensional representation
-
+        """
+        K-Means 클러스터링을 수행합니다.
+        이 메서드 역시 필요한 데이터를 속성처럼 접근하기만 하면 됩니다.
+        """
+        print(f"\n--- Performing K-Means with {n_clusters} clusters ---")
         kmeans = KMeans(n_clusters=n_clusters, init='k-means++', n_init=10, random_state=42)
-
-        # 클러스터링에 사용할 수치형 데이터
+        
+        # ★ 6. self.low_dimensional_df에 접근하는 순간, 필요시 모든 계산이 자동으로 수행됩니다.
         X = self.low_dimensional_df
+        self.cluster_labels = kmeans.fit_predict(X)
+        self.cluster_centers = kmeans.cluster_centers_
+        self.data['cluster'] = self.cluster_labels
 
-        self.data['cluster'] = kmeans.fit_predict(X)
-        self.cluster_centers = np.array(kmeans.cluster_centers_)
-
-        print(self.cluster_centers[0])
-
-        # --- [요청사항 2 ] 각 클러스터 중심에 가장 가까운 샘플 10개를 딕셔너리로 저장 ---
-        print("\n--- [2] 각 클러스터 중심에 가장 가까운 샘플 10개 (딕셔너리 저장) ---")
-
-        # 결과를 저장할 빈 딕셔너리를 생성합니다.
+        # 각 클러스터 중심에 가장 가까운 샘플 찾기
         self.nearest_samples_dict = {}
-
-        # 모든 데이터 포인트와 클러스터 중심점 간의 유클리드 거리를 계산합니다.
-        dists = distance.cdist(self.low_dimensional_df.iloc[:,:], self.cluster_centers)
-
-        # 각 클러스터에 대해 반복합니다.
+        dists = distance.cdist(X, self.cluster_centers)
         for i in range(n_clusters):
-            # i번 클러스터에 대한 거리 정보만 추출합니다.
-            distances_to_center_i = dists[:, i]
-            
-            # 거리가 가까운 순서대로 샘플의 인덱스를 정렬합니다.
-            nearest_sample_indices = np.argsort(distances_to_center_i)
-            
-            # 가장 가까운 10개의 샘플 인덱스를 가져옵니다.
-            top_nearest_indices = nearest_sample_indices[:self.args.num_nearest_points]
-            
-            # [핵심] 딕셔너리에 {클러스터 번호: 인덱스 리스트} 형태로 저장합니다.
-            # .tolist()를 사용하여 NumPy 배열을 일반 파이썬 리스트로 변환합니다.
-            self.nearest_samples_dict[i] = top_nearest_indices.tolist()
-
-        # 최종적으로 생성된 딕셔너리를 출력하여 확인합니다.
-        print("최종 저장된 딕셔너리:")
-        print(self.nearest_samples_dict)
-        return self.data
-
-    # def hierarchical(self, n_clusters=3):
-    #     from sklearn.cluster import AgglomerativeClustering
-    #     clustering = AgglomerativeClustering(n_clusters=n_clusters)
-    #     self.data['cluster'] = clustering.fit_predict(self.data)
-    #     return self.data
+            nearest_indices = np.argsort(dists[:, i])
+            num_points = self.args.num_nearest_points if hasattr(self.args, 'num_nearest_points') else 10
+            self.nearest_samples_dict[i] = nearest_indices[:num_points].tolist()
+        
+        print("Clustering complete. Results are stored in the object.")
+        # 이 메서드는 객체의 상태를 변경하는 '명령'이므로 아무것도 반환하지 않는 것이 더 좋습니다.
