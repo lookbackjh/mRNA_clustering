@@ -30,7 +30,7 @@ def main():
     preprocessor = Preprocess(args)
     data = preprocessor.get_processed_data() # data would be shape of n_features x n_samples
 
-    fdr_feature_selector = FDRFeatureSelector(args, data,preprocessor.feature_dict)
+    fdr_feature_selector = FDRFeatureSelector(args, data,preprocessor.feature_dict)  # here, preprocessor.feature_dict is a dictionary that maps feature indices to feature names
     fdr_feature_selector.select_features()  # Select features based on FDR
     fdr_feature_selector.display_sorted_features()  # Display sorted features by p-value
 
