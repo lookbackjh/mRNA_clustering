@@ -2,6 +2,7 @@ from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 import numpy as np
 import pandas as pd
+from sklearn.decomposition import PCA
 from scipy.spatial import distance
 class Clustering:
     def __init__(self,args, data):
@@ -19,38 +20,46 @@ class Clustering:
         if self.args.distance_metric == 'euclidean':
             # Use pdist to calculate pairwise distances and then convert to square form
             distance_matrix = distance.pdist(data_array, metric='euclidean')
-            distance_matrix = distance.squareform(distance_matrix)
+            self.distance_matrix = distance.squareform(distance_matrix)
         elif self.args.distance_metric == 'pearson':
             # since pdist does not support 'spearman', we need to use a different approach
             from scipy.stats import spearmanr
             # Calculate the pairwise Spearman correlation
             corr_matrix = self.data.T.corr(method='spearman')
             # Convert correlation to distance
-            distance_matrix = 1 - corr_matrix
+            self.distance_matrix = 1 - corr_matrix
         elif self.args.distance_metric == 'spearman':
             # Calculate the pairwise Spearman correlation
             from scipy.stats import spearmanr
             corr_matrix = self.data.T.corr(method='spearman')
             # Convert correlation to distance
-            distance_matrix = 1 - corr_matrix
+            self.distance_matrix = 1 - corr_matrix
         else:
             raise ValueError(f"Unsupported distance metric: {self.args.distance_metric}")
-        return distance_matrix
     
     def low_dimensional_representation(self):
 
         #using distance matrix, convert 249*249 into 249*embedding_num
         # iuse pca
-        from sklearn.decomposition import PCA
-        pca = PCA(n_components=self.args.embedding_num)
-        # Fit PCA on the distance matrix
-        pca.fit(self.data)
-        # Transform the data to low-dimensional representation
-        low_dimensional_data = pca.transform(self.data)
-        # Convert the low-dimensional data back to a DataFrame
-        self.low_dimensional_df = pd.DataFrame(low_dimensional_data, columns=[f'PC{i+1}' for i in range(self.args.embedding_num)])
-        # Add the original index as a column
-        print("Low-dimensional representation shape:", self.low_dimensional_df)
+        if self.args.embedding_method =='pca':
+
+            pca = PCA(n_components=self.args.embedding_num)
+            # Fit PCA on the distance matrix
+            pca.fit(self.distance_matrix)
+            # Transform the data to low-dimensional representation
+            low_dimensional_data = pca.transform(self.distance_matrix)
+            # Convert the low-dimensional data back to a DataFrame
+            self.low_dimensional_df = pd.DataFrame(low_dimensional_data, columns=[f'PC{i+1}' for i in range(self.args.embedding_num)])
+            # Add the original index as a column
+            print("Low-dimensional representation shape:", self.low_dimensional_df)
+            
+        elif self.args.embedding_method == 'laplacian':
+            from sklearn.manifold import SpectralEmbedding
+            embedding = SpectralEmbedding(n_components=self.args.embedding_num, affinity='precomputed')
+            low_dimensional_data = embedding.fit_transform(self.distance_matrix)
+            self.low_dimensional_df = pd.DataFrame(low_dimensional_data, columns=[f'LE{i+1}' for i in range(self.args.embedding_num)])
+        else:
+            raise ValueError(f"Unsupported embedding method: {self.args.embedding_method}")
 
 
 
@@ -87,8 +96,6 @@ class Clustering:
 
         distance_matrix = self.calculate_distance_matrix()
         self.low_dimensional_representation()  # Get low-dimensional representation
-
-
 
         kmeans = KMeans(n_clusters=n_clusters, init='k-means++', n_init=10, random_state=42)
 
@@ -129,8 +136,8 @@ class Clustering:
         print(self.nearest_samples_dict)
         return self.data
 
-    def hierarchical(self, n_clusters=3):
-        from sklearn.cluster import AgglomerativeClustering
-        clustering = AgglomerativeClustering(n_clusters=n_clusters)
-        self.data['cluster'] = clustering.fit_predict(self.data)
-        return self.data
+    # def hierarchical(self, n_clusters=3):
+    #     from sklearn.cluster import AgglomerativeClustering
+    #     clustering = AgglomerativeClustering(n_clusters=n_clusters)
+    #     self.data['cluster'] = clustering.fit_predict(self.data)
+    #     return self.data

@@ -70,7 +70,7 @@ class FDRFeatureSelector:
                 print("No features to display.")
                 return
 
-            for feature, p_val in sorted_features:
+            for feature, p_val in sorted_features[:self.args.num_features_to_display]:
                 print(f"{self.feature_dict[feature]}: {p_val:.6f}")
 
         _print_sorted_results("Comparison 1: Normal vs. Abnormal", self.comp1_corrected)

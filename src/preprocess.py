@@ -19,6 +19,10 @@ class Preprocess:
          # Store the feature names in a dictionary
         # Replace zeros with a small value
         self.replace_zeros(self.args.small_value)
+
+        
+
+
         self.data_normalization()
         # Apply transformations if needed
 

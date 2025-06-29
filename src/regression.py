@@ -2,11 +2,14 @@ from sklearn.linear_model import LinearRegression
 import pandas as pd
 import statsmodels.api as sm  
 class Regression:
-    def __init__(self, args, clustering): 
+    def __init__(self, args, clustering, feature_dict=None): 
         self.args = args
         self.clustered_data = clustering.data # Get the clustered data from the clustering object
         self.clustering_centers = clustering.cluster_centers # Get the clustering centers
         self.c_nearest_points = clustering.nearest_samples_dict  # Get the nearest points for each cluster
+        self.feature_dict = feature_dict if feature_dict is not None else {}
+
+
 
     def get_data_for_regression(self):
         """
@@ -58,6 +61,7 @@ class Regression:
             # 2. 범주형 변수 처리 (이전과 동일)
             X = pd.get_dummies(X, columns=['status'], drop_first=True)
 
+
             # 3. [핵심] 선형 회귀 모델 학습 (statsmodels 사용)
             # statsmodels는 절편(intercept)을 자동으로 추가하지 않으므로, 수동으로 상수항을 추가해야 합니다.
             X_with_const = sm.add_constant(X)
@@ -71,6 +75,10 @@ class Regression:
             X_with_const = X_with_const.astype(float)
             Y = Y.astype(float)
 
+
+            # I want to change the coluumn nmae of X_with_const if the index of feature is in the feature_dict
+            X_with_const.rename(columns={i: self.feature_dict.get(i, f'feature_{i}') for i in X_with_const.columns}, inplace=True)
+
             model = sm.OLS(Y, X_with_const)
             results = model.fit()
 
@@ -78,7 +86,7 @@ class Regression:
             pvalues = results.pvalues
             r2_score = results.rsquared
             coefficients = results.params # params가 계수와 절편을 모두 포함
-            intercept = results.params['const'] # 'const' 키로 절편 접근
+            intercept = results.params['feature_const'] # 'const' 키로 절편 접근
             predictions = results.predict(X_with_const)
 
             # 학습된 모델과 결과를 딕셔너리에 저장

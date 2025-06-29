@@ -16,8 +16,10 @@ def parse_args():
     parser.add_argument('--fdr_threshold', type=float, default=0.1, help='FDR threshold for feature selection')
     parser.add_argument('--distance_metric', type=str, default='pearson', help='euclidean, spearman, pearson, cosine, or correlation distance metric')
     parser.add_argument('--embedding_num', type=int, default=10, help='Number of dimensions for low-dimensional representation')
-    parser.add_argument('--embedding_method', type=str, default='pca', help='Method for low-dimensional representation, options: pca, laplacian')
+    parser.add_argument('--embedding_method', type=str, default='laplacian', help='Method for low-dimensional representation, options: pca, laplacian')
     parser.add_argument('--count_threshold', type=float, default=0.1, help='Threshold for count-based regression')
+    parser.add_argument('--to_split', type=bool, default=True, help='Whether to split the data ')
+    parser.add_argument('--num_features_to_display', type=int, default=20, help='Number of features to display after FDR correction')
 
     return parser.parse_args()
     
@@ -35,7 +37,7 @@ def main():
     clustering= Clustering(args, data)
     clustering.kmeans(n_clusters=args.num_clusters)  # Perform KMeans clustering
 
-    regression = Regression(args,clustering)
+    regression = Regression(args,clustering,preprocessor.feature_dict)
     regression.do_regression()  # Process data for regression
 
 
