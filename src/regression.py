@@ -1,6 +1,10 @@
 from sklearn.linear_model import LinearRegression
 import pandas as pd
+from sklearn.linear_model import Lasso
 import statsmodels.api as sm  
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from group_lasso import GroupLasso
 class Regression:
     def __init__(self, args, clustering, feature_dict=None): 
         self.args = args
@@ -8,8 +12,74 @@ class Regression:
         self.clustering_centers = clustering.cluster_centers # Get the clustering centers
         self.c_nearest_points = clustering.nearest_samples_dict  # Get the nearest points for each cluster
         self.feature_dict = feature_dict if feature_dict is not None else {}
+        #self.lasso_data=None
 
 
+    def _tranform_data_for_lasso(self,X):
+        """
+        """
+        # for every column in X I want to  split into 6 columns col_normal_zero, col_normal_nonzero, col_abnormal_zero, col_abnormal_nonzero, col_alzheimer_zero, col_alzheimer_nonzero
+
+        colnames=[]
+        group_indicators = [] # this should be a list containing the group indicators for each column, which will be used in group lasso regression.
+        for idx,col in enumerate(X.columns):
+            col_normal_zero = f"{col}_N_zero"
+            col_normal_nonzero = f"{col}_N_nonzero"
+            col_abnormal_zero = f"{col}_M_zero"
+            col_abnormal_nonzero = f"{col}_M_nonzero"
+            col_alzheimer_zero = f"{col}_A_zero"
+            col_alzheimer_nonzero = f"{col}_A_nonzero"
+
+            colnames.extend([col_normal_zero, col_normal_nonzero, col_abnormal_zero, col_abnormal_nonzero, col_alzheimer_zero, col_alzheimer_nonzero])
+            # I want to add the group indicators for each column
+            group_indicators.extend([idx]*6)
+            
+        # Fill the columns based on the status
+        transformed_data = pd.DataFrame(index=X.index, columns=colnames)
+
+        # now lets fill in the columns from original data, lets see column vectors. 
+        for col in X.columns:
+            #get column vector
+            col_vector = X[col]
+            # I'd use two boolean masks to identify zero and non-zero values for each status # till index 10 is normal, 10 to 19 is abnormal, and 19 to 29 is alzheimer
+            indices = np.arange(29)
+
+            # 각 조건에 맞는 마스크 생성
+            normal_mask = indices < 10
+            abnormal_mask = (indices >= 10) & (indices < 19)
+            alzheimer_mask = (indices >= 19) & (indices < 29)
+            # and zero mask and non-zero mask are masks for splitting small values. 
+            zeromask = col_vector <self.args.count_threshold
+            nonzeromask = col_vector >= self.args.count_threshold
+            # Fill the transformed_data DataFrame based on these masks
+            col_vector_normal_zero = col_vector.where(normal_mask & zeromask, 0)
+            col_vector_normal_nonzero = col_vector.where(normal_mask & nonzeromask, 0)
+            col_vector_abnormal_zero = col_vector.where(abnormal_mask & zeromask,
+                                                            0)  
+            col_vector_abnormal_nonzero = col_vector.where(abnormal_mask & nonzeromask, 0)
+            col_vector_alzheimer_zero = col_vector.where(alzheimer_mask & zeromask,
+                                                            0)
+            col_vector_alzheimer_nonzero = col_vector.where(alzheimer_mask & nonzeromask, 0)
+
+            col_normal_zero = f"{col}_N_zero"
+            col_normal_nonzero = f"{col}_N_nonzero"
+            col_abnormal_zero = f"{col}_M_zero"
+            col_abnormal_nonzero = f"{col}_M_nonzero"
+            col_alzheimer_zero = f"{col}_A_zero"
+            col_alzheimer_nonzero = f"{col}_A_nonzero"
+
+            # Fill the transformed_data DataFrame
+            transformed_data[col_normal_zero] = col_vector_normal_zero
+            transformed_data[col_normal_nonzero] = col_vector_normal_nonzero
+            transformed_data[col_abnormal_zero] = col_vector_abnormal_zero
+            transformed_data[col_abnormal_nonzero] = col_vector_abnormal_nonzero
+            transformed_data[col_alzheimer_zero] = col_vector_alzheimer_zero
+            transformed_data[col_alzheimer_nonzero] = col_vector_alzheimer_nonzero 
+        # Fill NaN values with 0
+
+
+        return transformed_data, group_indicators
+        
 
     def _get_data_for_regression(self):
         """
@@ -30,9 +100,56 @@ class Regression:
         self.data_for_regression['status'] = ['normal'] * data_normal.shape[0] + ['abnormal'] * data_abnormal.shape[0] + ['alzheimer'] * data_alzheimer.shape[0]
 
         return self.data_for_regression
+
+    
+    def do_lasso_regression(self):
+        """
+        Perform lasso regression on the clustered data.
+        This method is a placeholder and needs to be implemented.
+        
+        """
+        self.data_for_regression = self._get_data_for_regression()  
+        for cluster_id, feature_indices in self.c_nearest_points.items():
+            print(f"\n>>>클러스터 {cluster_id}에 대한 Lasso 회귀 분석 시작...")
+
+            # 1. Y와 X 데이터 분리 (이전과 동일)
+            y_index = feature_indices[0]
+            x_indices = feature_indices[1 : 1 + self.args.num_nearest_points]
+
+            Y = self.data_for_regression.iloc[:, y_index]
+            X = self.data_for_regression.iloc[:, x_indices].copy()
+            X_transformed,group_indicators = self._tranform_data_for_lasso(X)  # Transform the data for lasso regression
+
+            scaler= StandardScaler()
+            # Scale the data
+
+            # this is general lasso
+            X_transformed_scaled = scaler.fit_transform(X_transformed)
+  
+
+            # I also want to do grouplasso       
+            # If do_grouplasso is True, perform group lasso regression
+            if  self.args.do_grouplasso: 
+                print(f"--- 클러스터 {cluster_id} Group Lasso 회귀 분석 시작 ---")
+                group_lasso = GroupLasso(groups=group_indicators, group_reg=self.args.group_alpha, l1_reg=self.args.alpha,supress_warning=True)
+                group_lasso.fit(X_transformed_scaled, Y)
+                group_lasso_coef = group_lasso.coef_
+                print(f"Group Lasso Coefficients: {group_lasso_coef}")
+            else:
+                print(f"--- 클러스터 {cluster_id} Lasso 회귀 분석 시작 ---")
+                lasso = Lasso(alpha=self.args.alpha, max_iter=1000)
+                lasso.fit(X_transformed_scaled, Y)
+                lasso_coef = lasso.coef_
+                print(f"Lasso Coefficients: {lasso_coef}")
+
+        pass
+
+
+
     
     def _split_data(self):
         pass
+
 
     def run_regression_analysis(self):
         # I want to make the columns vertically,  for example, for first 10 column the next 10 columns should be at the end of the first 10 columns and so on.
