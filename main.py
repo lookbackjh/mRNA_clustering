@@ -38,11 +38,11 @@ def main():
     fdr_feature_selector.select_features()  # Select features based on FDR
     fdr_feature_selector.display_sorted_features()  # Display sorted features by p-value
 
-    clustering= Clustering(args, data)
-    clustering.kmeans(n_clusters=args.num_clusters)  # Perform KMeans clustering
+    # clustering= Clustering(args, data)
+    # clustering.kmeans(n_clusters=args.num_clusters)  # Perform KMeans clustering
 
-    regression = Regression(args,clustering,preprocessor.feature_dict)
-    regression.do_lasso_regression()  # Process data for regression
+    # regression = Regression(args,clustering,preprocessor.feature_dict)
+    # regression.do_lasso_regression()  # Process data for regression
     #regression._get_data_for_lasso() # Perform lasso regression on the clustered data
 
 

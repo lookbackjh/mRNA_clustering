@@ -42,8 +42,48 @@ class FDRFeatureSelector:
         self.comp1_corrected = self.fdr_correction(comp1_pvals)
         self.comp2_corrected = self.fdr_correction(comp2_pvals)
         self.comp3_corrected = self.fdr_correction(comp3_pvals)
-        
-        print("FDR correction complete. Call 'display_sorted_features()' to see results.")
+
+        #print how many features passed the FDR threshold 0.1
+        num_features_comp1 = np.sum(self.comp1_corrected < self.args.fdr_threshold)
+        num_features_comp2 = np.sum(self.comp2_corrected < self.args.fdr_threshold)
+        num_features_comp3 = np.sum(self.comp3_corrected < self.args.fdr_threshold)
+        print(f"Number of features passing FDR threshold {self.args.fdr_threshold}:")
+        print(f"Comparison 1 (Normal vs. Abnormal): {num_features_comp1}")
+        print(f"Comparison 2 (Normal vs. Alzheimer): {num_features_comp2}")
+        print(f"Comparison 3 (Abnormal vs. Alzheimer): {num_features_comp3}")
+
+        # i also want you to plot the p-values for each comparison and draw a horizontal line at the FDR threshold
+        import matplotlib.pyplot as plt
+        plt.figure(figsize=(12, 6))
+        plt.subplot(1, 3, 1)
+        plt.scatter(range(len(self.comp1_corrected)), self.comp1_corrected, label='Comparison 1', color='blue')
+        plt.axhline(y=self.args.fdr_threshold, color='red', linestyle='--')
+        plt.title('Comparison 1: Normal vs. Abnormal')
+        plt.xlabel('Feature Index')
+        plt.ylabel('FDR-corrected p-value')
+
+        plt.subplot(1, 3, 2)
+        plt.scatter(range(len(self.comp3_corrected)), self.comp3_corrected, label='Comparison 3', color='orange')
+        plt.axhline(y=self.args.fdr_threshold, color='red', linestyle='--')
+        plt.title('Comparison 2: Abnormal vs. Alzheimer')
+        plt.xlabel('Feature Index')
+        plt.ylabel('FDR-corrected p-value')
+        plt.tight_layout()
+
+        plt.subplot(1, 3, 3)
+        plt.scatter(range(len(self.comp2_corrected)), self.comp2_corrected, label='Comparison 2', color='green')
+        plt.axhline(y=self.args.fdr_threshold, color='red', linestyle='--')
+        plt.title('Comparison 3: Normal vs. Alzheimer')
+        plt.xlabel('Feature Index')     
+        plt.ylabel('FDR-corrected p-value')
+
+        plt.show()
+        # Save the results to a file
+        plt.savefig('fdr_correction_results.png')
+
+
+
+
         return self
 
     def display_sorted_features(self):

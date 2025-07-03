@@ -6,6 +6,7 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import SpectralEmbedding
 import matplotlib.pyplot as plt
 from scipy.spatial import distance
+from sklearn.manifold import MDS
 
 class Clustering:
     def __init__(self, args, data):
@@ -57,10 +58,10 @@ class Clustering:
             print("--- Computing Low-Dimensional Representation (this happens only once) ---")
             
             if self.args.embedding_method == 'pca':
-                pca = PCA(n_components=self.args.embedding_num)
+                mds = MDS(n_components=self.args.embedding_num)
                 # ★ 4. '연쇄 반응': self.distance_matrix에 접근하면 위 property가 실행됩니다.
-                low_dim_data = pca.fit_transform(self.distance_matrix)
-                self._low_dimensional_df = pd.DataFrame(low_dim_data, columns=[f'PC{i+1}' for i in range(self.args.embedding_num)])
+                low_dim_data = mds.fit_transform(self.distance_matrix)
+                self._low_dimensional_df = pd.DataFrame(low_dim_data, columns=[f'MDS{i+1}' for i in range(self.args.embedding_num)])
 
             elif self.args.embedding_method == 'laplacian':
                 sigma = self.args.sigma if hasattr(self.args, 'sigma') else 1.0
