@@ -1,224 +1,236 @@
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LinearRegression, Lasso
 import pandas as pd
-from sklearn.linear_model import Lasso
-import statsmodels.api as sm  
+import statsmodels.api as sm
 import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 from sklearn.preprocessing import StandardScaler
 from group_lasso import GroupLasso
+
 class Regression:
-    def __init__(self, args, clustering, feature_dict=None): 
+    """
+    클러스터링 결과를 기반으로 회귀 분석(OLS, Group Lasso)을 수행하는 클래스.
+    """
+    def __init__(self, args, clustering, feature_dict=None):
         self.args = args
-        self.clustered_data = clustering.data # Get the clustered data from the clustering object
-        self.clustering_centers = clustering.cluster_centers # Get the clustering centers
-        self.c_nearest_points = clustering.nearest_samples_dict  # Get the nearest points for each cluster
+        self.clustered_data = clustering.data
+        self.c_nearest_points = clustering.nearest_samples_dict
         self.feature_dict = feature_dict if feature_dict is not None else {}
-        #self.lasso_data=None
-
-
-    def _tranform_data_for_lasso(self,X):
-        """
-        """
-        # for every column in X I want to  split into 6 columns col_normal_zero, col_normal_nonzero, col_abnormal_zero, col_abnormal_nonzero, col_alzheimer_zero, col_alzheimer_nonzero
-
-        colnames=[]
-        group_indicators = [] # this should be a list containing the group indicators for each column, which will be used in group lasso regression.
-        for idx,col in enumerate(X.columns):
-            col_normal_zero = f"{col}_N_zero"
-            col_normal_nonzero = f"{col}_N_nonzero"
-            col_abnormal_zero = f"{col}_M_zero"
-            col_abnormal_nonzero = f"{col}_M_nonzero"
-            col_alzheimer_zero = f"{col}_A_zero"
-            col_alzheimer_nonzero = f"{col}_A_nonzero"
-
-            colnames.extend([col_normal_zero, col_normal_nonzero, col_abnormal_zero, col_abnormal_nonzero, col_alzheimer_zero, col_alzheimer_nonzero])
-            # I want to add the group indicators for each column
-            group_indicators.extend([idx]*6)
-            
-        # Fill the columns based on the status
-        transformed_data = pd.DataFrame(index=X.index, columns=colnames)
-
-        # now lets fill in the columns from original data, lets see column vectors. 
-        for col in X.columns:
-            #get column vector
-            col_vector = X[col]
-            # I'd use two boolean masks to identify zero and non-zero values for each status # till index 10 is normal, 10 to 19 is abnormal, and 19 to 29 is alzheimer
-            indices = np.arange(29)
-
-            # 각 조건에 맞는 마스크 생성
-            normal_mask = indices < 10
-            abnormal_mask = (indices >= 10) & (indices < 19)
-            alzheimer_mask = (indices >= 19) & (indices < 29)
-            # and zero mask and non-zero mask are masks for splitting small values. 
-            zeromask = col_vector <self.args.count_threshold
-            nonzeromask = col_vector >= self.args.count_threshold
-            # Fill the transformed_data DataFrame based on these masks
-            col_vector_normal_zero = col_vector.where(normal_mask & zeromask, 0)
-            col_vector_normal_nonzero = col_vector.where(normal_mask & nonzeromask, 0)
-            col_vector_abnormal_zero = col_vector.where(abnormal_mask & zeromask,
-                                                            0)  
-            col_vector_abnormal_nonzero = col_vector.where(abnormal_mask & nonzeromask, 0)
-            col_vector_alzheimer_zero = col_vector.where(alzheimer_mask & zeromask,
-                                                            0)
-            col_vector_alzheimer_nonzero = col_vector.where(alzheimer_mask & nonzeromask, 0)
-
-            col_normal_zero = f"{col}_N_zero"
-            col_normal_nonzero = f"{col}_N_nonzero"
-            col_abnormal_zero = f"{col}_M_zero"
-            col_abnormal_nonzero = f"{col}_M_nonzero"
-            col_alzheimer_zero = f"{col}_A_zero"
-            col_alzheimer_nonzero = f"{col}_A_nonzero"
-
-            # Fill the transformed_data DataFrame
-            transformed_data[col_normal_zero] = col_vector_normal_zero
-            transformed_data[col_normal_nonzero] = col_vector_normal_nonzero
-            transformed_data[col_abnormal_zero] = col_vector_abnormal_zero
-            transformed_data[col_abnormal_nonzero] = col_vector_abnormal_nonzero
-            transformed_data[col_alzheimer_zero] = col_vector_alzheimer_zero
-            transformed_data[col_alzheimer_nonzero] = col_vector_alzheimer_nonzero 
-        # Fill NaN values with 0
-
-
-        return transformed_data, group_indicators
-        
+        self.data_for_regression = None # 분석 전 데이터 준비를 위해 None으로 초기화
 
     def _get_data_for_regression(self):
         """
-        Returns the data prepared for regression.
+        회귀 분석에 사용될 데이터를 준비하고 Transpose하여 반환합니다.
+
+        최적화: 여러 DataFrame을 각각 Transpose하지 않고, 원본을 한 번만 Transpose하여 효율성을 높였습니다.
         """
+        # clustered_data를 먼저 Transpose하여 샘플을 행, 특성을 열로 만듭니다.
+        transposed_data = self.clustered_data.T
 
-        data_normal=self.clustered_data.iloc[:, :10]
-        data_abnormal=self.clustered_data.iloc[:, 10:19]
-        data_alzheimer=self.clustered_data.iloc[:, 19:29]
-        # Concatenate the data vertically
+        # 미리 정의된 인덱스를 기반으로 데이터를 분리합니다.
+        data_normal = transposed_data.iloc[:10, :]
+        data_abnormal = transposed_data.iloc[10:19, :]
+        data_alzheimer = transposed_data.iloc[19:29, :]
 
-        data_normal=data_normal.T
-        data_abnormal=data_abnormal.T
-        data_alzheimer=data_alzheimer.T
-        # now concatenate the data
+        # status 열을 추가하며 데이터를 수직으로 결합합니다.
+        data_normal['status'] = 'normal'
+        data_abnormal['status'] = 'abnormal'
+        data_alzheimer['status'] = 'alzheimer'
+
+        # 최종 데이터를 생성하고 클래스 속성으로 저장합니다.
         self.data_for_regression = pd.concat([data_normal, data_abnormal, data_alzheimer], axis=0)
-        # first 10 columns are normal, next 9 columns are abnormal and the last 10 columns are alzheimer.
-        self.data_for_regression['status'] = ['normal'] * data_normal.shape[0] + ['abnormal'] * data_abnormal.shape[0] + ['alzheimer'] * data_alzheimer.shape[0]
-
         return self.data_for_regression
 
-    
+    def _tranform_data_for_lasso(self, X):
+        """
+        Group Lasso 분석을 위해 원본 설명 변수(X)를 6개의 하위 특성으로 분해합니다.
+
+        최적화: 반복문 내에서 DataFrame을 계속 수정하는 대신,
+                 리스트에 작은 DataFrame들을 담아 마지막에 한 번만 결합(concat)하여 성능을 개선했습니다.
+        """
+        transformed_dfs = []
+        group_indicators = []
+        
+        # 반복문 밖에서 고정된 마스크를 미리 생성합니다.
+        indices = np.arange(len(X))
+        normal_mask = indices < 10
+        abnormal_mask = (indices >= 10) & (indices < 19)
+        alzheimer_mask = indices >= 19
+
+        for idx, col in enumerate(X.columns):
+            col_vector = X[col]
+            zeromask = col_vector < self.args.count_threshold
+            nonzeromask = ~zeromask  # Boolean not 연산으로 더 간결하게 표현
+
+            temp_data = {
+                f"{col}_N_zero": col_vector.where(normal_mask & zeromask, 0),
+                f"{col}_N_nonzero": col_vector.where(normal_mask & nonzeromask, 0),
+                f"{col}_M_zero": col_vector.where(abnormal_mask & zeromask, 0),
+                f"{col}_M_nonzero": col_vector.where(abnormal_mask & nonzeromask, 0),
+                f"{col}_A_zero": col_vector.where(alzheimer_mask & zeromask, 0),
+                f"{col}_A_nonzero": col_vector.where(alzheimer_mask & nonzeromask, 0),
+            }
+            transformed_dfs.append(pd.DataFrame(temp_data))
+            group_indicators.extend([idx] * 6)
+
+        # 분해된 모든 특성들을 한 번에 결합합니다.
+        transformed_data = pd.concat(transformed_dfs, axis=1)
+        return transformed_data, group_indicators
+
+    def _visualize_coefficients(self, chosen_features_by_group, cluster_id, center_point):
+        """
+        선택된 특성들의 계수를 막대그래프로 시각화하고 파일로 저장합니다.
+        
+        최적화: plt.show()가 그림을 초기화할 수 있으므로, plt.savefig()를 먼저 호출하도록 순서를 변경했습니다.
+                 또한 plt.close()를 호출하여 메모리 누수를 방지합니다.
+        """
+        plot_data = []
+        for _, sub_features in chosen_features_by_group.items():
+            for feature_name, coef in sub_features:
+                scalar_coef = float(coef)
+                plot_data.append({'Feature': str(feature_name), 'Coefficient': scalar_coef})
+
+        if not plot_data:
+            print("시각화할 선택된 특성이 없습니다.")
+            return
+
+        df = pd.DataFrame(plot_data)
+        
+        # 계수의 절대값 기준으로 정렬하여 영향력이 큰 특성을 확인하기 쉽게 합니다.
+        df = df.sort_values(by='Coefficient', key=abs, ascending=False)
+        
+        # 시각화할 상위 N개 특성만 선택합니다.
+        df_display = df.head(self.args.num_features_to_display)
+        df_display = df_display.sort_values(by='Coefficient', key=abs, ascending=True)
+
+        plt.figure(figsize=(12, len(df_display) * 0.4 + 2))
+        colors = ['#3498db' if c > 0 else '#e74c3c' for c in df_display['Coefficient']]
+        plt.barh(df_display['Feature'], df_display['Coefficient'], color=colors)
+
+        plt.title(f'Cluster {cluster_id}: center point {center_point} (Feature Coefficients)', fontsize=16)
+        plt.xlabel('Coefficient', fontsize=12)
+        plt.ylabel('Feature', fontsize=12)
+        plt.grid(axis='x', linestyle='--', alpha=0.7)
+        plt.tight_layout()
+        
+        # 그림을 파일로 먼저 저장한 후 화면에 표시합니다.
+        plt.savefig(f'figures/cluster_{cluster_id}_coefficients.png', dpi=300, bbox_inches='tight')
+        plt.show()
+        plt.close() # Figure 객체를 메모리에서 명시적으로 닫아줍니다.
+
     def do_lasso_regression(self):
         """
-        Perform lasso regression on the clustered data.
-        This method is a placeholder and needs to be implemented.
-        
+        클러스터별 Group Lasso 또는 일반 Lasso 회귀분석을 수행합니다.
         """
-        self.data_for_regression = self._get_data_for_regression()  
+        self.data_for_regression = self._get_data_for_regression()
+        
         for cluster_id, feature_indices in self.c_nearest_points.items():
             print(f"\n>>>클러스터 {cluster_id}에 대한 Lasso 회귀 분석 시작...")
 
-            # 1. Y와 X 데이터 분리 (이전과 동일)
             y_index = feature_indices[0]
-            x_indices = feature_indices[1 : 1 + self.args.num_nearest_points]
+            x_indices = feature_indices[1: 1 + self.args.num_nearest_points]
 
             Y = self.data_for_regression.iloc[:, y_index]
             X = self.data_for_regression.iloc[:, x_indices].copy()
-            X_transformed,group_indicators = self._tranform_data_for_lasso(X)  # Transform the data for lasso regression
+            X_transformed, group_indicators = self._tranform_data_for_lasso(X)
 
-            scaler= StandardScaler()
-            # Scale the data
-
-            # this is general lasso
+            scaler = StandardScaler()
             X_transformed_scaled = scaler.fit_transform(X_transformed)
-  
+            center_point = self.feature_dict[feature_indices[0]]
 
-            # I also want to do grouplasso       
-            # If do_grouplasso is True, perform group lasso regression
-            if  self.args.do_grouplasso: 
+            if self.args.do_grouplasso:
                 print(f"--- 클러스터 {cluster_id} Group Lasso 회귀 분석 시작 ---")
-                group_lasso = GroupLasso(groups=group_indicators, group_reg=self.args.group_alpha, l1_reg=self.args.alpha,supress_warning=True)
+                print('center point:', center_point)
+                
+                group_lasso = GroupLasso(
+                    groups=group_indicators, 
+                    group_reg=self.args.group_alpha, 
+                    l1_reg=self.args.alpha, 
+                    supress_warning=True
+                )
                 group_lasso.fit(X_transformed_scaled, Y)
                 group_lasso_coef = group_lasso.coef_
-                print(f"Group Lasso Coefficients: {group_lasso_coef}")
+
+                chosen_features_by_group = {}
+                nonzero_counter = 0
+                
+                original_feature_names = X.columns
+                transformed_feature_names = X_transformed.columns
+                
+                # 계수가 0이 아닌 특성들을 분석합니다.
+                for i, coef in enumerate(group_lasso_coef):
+                    if coef != 0:
+                        nonzero_counter += 1
+                        group_idx = group_indicators[i]
+                        original_name = original_feature_names[group_idx]
+                        transformed_name = transformed_feature_names[i]
+
+                        if original_name not in chosen_features_by_group:
+                            chosen_features_by_group[original_name] = []
+                        chosen_features_by_group[original_name].append((transformed_name, coef))
+
+                if not chosen_features_by_group:
+                    print("❌ 모든 그룹의 계수가 0이 되어 선택된 특성이 없습니다.")
+                    print(f"   (Lasso alpha 값을 줄여보세요: group_alpha={self.args.group_alpha}, l1_reg={self.args.alpha})")
+                else:
+                    print(f"✅ 총 {len(X.columns)}개 그룹 중 {len(chosen_features_by_group)}개 그룹이 선택되었습니다.")
+                    self._visualize_coefficients(chosen_features_by_group, cluster_id, center_point)
+                
+                print(f"   - 살아남은 특성 개수:  {nonzero_counter} (lambda: {self.args.group_alpha}, alpha: {self.args.alpha})")
+                print(f"   - 계수가 0인 특성 개수: {len(group_lasso_coef) - nonzero_counter} (lambda: {self.args.group_alpha}, alpha: {self.args.alpha})")
+
             else:
+                # 일반 Lasso 회귀분석 부분
                 print(f"--- 클러스터 {cluster_id} Lasso 회귀 분석 시작 ---")
                 lasso = Lasso(alpha=self.args.alpha, max_iter=1000)
                 lasso.fit(X_transformed_scaled, Y)
                 lasso_coef = lasso.coef_
                 print(f"Lasso Coefficients: {lasso_coef}")
 
-        pass
-
-
-
-    
-    def _split_data(self):
-        pass
-
-
     def run_regression_analysis(self):
-        # I want to make the columns vertically,  for example, for first 10 column the next 10 columns should be at the end of the first 10 columns and so on.
-        # the data i in shape of n_features * n_samples, and the samples consists of 3 categories. 
-        # what I want to do is to make data in to shape of n_features * n_samples * n_categories 
-
-        # Now I want to do regression based on the clustering centers.
-        #self.model = LinearRegression()
-        self.data_for_regression = self._get_data_for_regression()  # 데이터 준비
+        """
+        Statsmodels를 사용하여 클러스터별 OLS 회귀분석을 수행하고 결과를 출력합니다.
+        """
+        if self.data_for_regression is None:
+            self.data_for_regression = self._get_data_for_regression()
 
         self.regression_models = {}
         self.regression_results = {}
 
-        # 딕셔너리의 모든 클러스터에 대해 반복
         for cluster_id, feature_indices in self.c_nearest_points.items():
             print(f"\n>>> 클러스터 {cluster_id}에 대한 회귀 분석 시작...")
 
-            # 1. Y와 X 데이터 분리 (이전과 동일)
             y_index = feature_indices[0]
-            x_indices = feature_indices[1 : 1 + self.args.num_nearest_points]
+            x_indices = feature_indices[1: 1 + self.args.num_nearest_points]
 
-            Y = self.data_for_regression.iloc[:, y_index]
+            Y = self.data_for_regression.iloc[:, y_index].astype(float)
             X = self.data_for_regression.iloc[:, x_indices].copy()
             X['status'] = self.data_for_regression['status']
 
-            # 2. 범주형 변수 처리 (이전과 동일)
-            X = pd.get_dummies(X, columns=['status'], drop_first=True)
+            # 범주형 변수 'status'를 더미 변수로 변환합니다.
+            X = pd.get_dummies(X, columns=['status'], drop_first=True, dtype=float)
 
-
-            # 3. [핵심] 선형 회귀 모델 학습 (statsmodels 사용)
-            # statsmodels는 절편(intercept)을 자동으로 추가하지 않으므로, 수동으로 상수항을 추가해야 합니다.
-            X_with_const = sm.add_constant(X)
+            # statsmodels는 절편을 자동으로 추가하지 않으므로, 상수항을 수동으로 추가합니다.
+            X_with_const = sm.add_constant(X, has_constant='add')
             
-            # OLS 모델을 정의하고 학습시킵니다.
-            # define indexes as row numbers
-
-            X_with_const.index = range(len(X_with_const))  # 인덱스를 0부터 시작하는 정수로 설정
-            Y.index = range(len(Y))  # Y의 인덱스도 동일하게
-            # data type as float
-            X_with_const = X_with_const.astype(float)
-            Y = Y.astype(float)
-
-
-            # I want to change the coluumn nmae of X_with_const if the index of feature is in the feature_dict
-            X_with_const.rename(columns={i: self.feature_dict.get(i, f'feature_{i}') for i in X_with_const.columns}, inplace=True)
+            # feature_dict를 사용하여 숫자 인덱스 컬럼명을 실제 특성 이름으로 변경합니다.
+            # get(col, col)을 사용하여 딕셔너리에 없는 컬럼명은 그대로 유지합니다(예: 'const', 'status_normal' 등).
+            renamed_columns = {col: self.feature_dict.get(col, col) for col in X_with_const.columns}
+            X_with_const.rename(columns=renamed_columns, inplace=True)
 
             model = sm.OLS(Y, X_with_const)
             results = model.fit()
 
-            # 4. [핵심] 결과 계산 및 저장 (statsmodels 결과 객체 사용)
-            pvalues = results.pvalues
-            r2_score = results.rsquared
-            coefficients = results.params # params가 계수와 절편을 모두 포함
-            intercept = results.params['feature_const'] # 'const' 키로 절편 접근
-            predictions = results.predict(X_with_const)
-
-            # 학습된 모델과 결과를 딕셔너리에 저장
-            self.regression_models[cluster_id] = results # results 객체 자체를 저장
+            self.regression_models[cluster_id] = results
             self.regression_results[cluster_id] = {
-                'r2_score': r2_score,
-                'coefficients': coefficients,
-                'pvalues': pvalues,
-                'intercept': intercept,
-                'predictions': predictions
+                'r2_score': results.rsquared,
+                'coefficients': results.params,
+                'pvalues': results.pvalues,
+                'intercept': results.params['const'],
+                'predictions': results.predict(X_with_const)
             }
 
-            # 5. [핵심] 결과 요약 출력 (summary() 함수 사용)
             print(f"--- 클러스터 {cluster_id} 분석 결과 요약 ---")
-            # summary() 함수는 R-squared, 계수, 표준오차, t-통계량, p-value 등 모든 정보를 담고 있습니다.
             print(results.summary())
             print("-" * 80)
 
