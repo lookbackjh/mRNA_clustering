@@ -9,9 +9,9 @@ from src.regression import Regression
 import argparse
 def parse_args():
     parser = argparse.ArgumentParser(description="Process Excel data.")
-    parser.add_argument('--data_path', type=str, default='data/data2.xlsx', help='Path to the Excel file')
+    parser.add_argument('--data_path', type=str, default='data2.xlsx', help='Path to the Excel file')
     parser.add_argument('--small_value', type=float, default=1e-6, help='Small value to replace zeros in the data')
-    parser.add_argument('--num_clusters', type=int, default=5, help='Number of clusters for clustering algorithms')
+    parser.add_argument('--num_clusters', type=int, default=4, help='Number of clusters for clustering algorithms')
     parser.add_argument('--num_nearest_points', type=int, default=11, help='Number of nearest points to consider for each cluster center')
     parser.add_argument('--normalization_method', type=str, default='log_naive', help='Normalization method to apply to the data, options: log_naive, clr, prob, naive')
     parser.add_argument('--fdr_threshold', type=float, default=0.1, help='FDR threshold for feature selection')

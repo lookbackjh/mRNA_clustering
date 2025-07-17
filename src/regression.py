@@ -1,4 +1,5 @@
 from sklearn.linear_model import LinearRegression, Lasso
+from sklearn.metrics import r2_score
 import pandas as pd
 import statsmodels.api as sm
 import numpy as np
@@ -115,7 +116,7 @@ class Regression:
         
         # 그림을 파일로 먼저 저장한 후 화면에 표시합니다.
         plt.savefig(f'figures/cluster_{cluster_id}_coefficients.png', dpi=300, bbox_inches='tight')
-        plt.show()
+        #plt.show()
         plt.close() # Figure 객체를 메모리에서 명시적으로 닫아줍니다.
 
     def do_lasso_regression(self):
@@ -132,6 +133,8 @@ class Regression:
 
             Y = self.data_for_regression.iloc[:, y_index]
             X = self.data_for_regression.iloc[:, x_indices].copy()
+            print(f"   - Y (target) for cluster {cluster_id}:\n{Y.head()}")
+            print(f"   - X (features) shape for cluster {cluster_id}: {X.shape}") 
             X_transformed, group_indicators = self._tranform_data_for_lasso(X)
 
             scaler = StandardScaler()
@@ -149,7 +152,35 @@ class Regression:
                     supress_warning=True
                 )
                 group_lasso.fit(X_transformed_scaled, Y)
+                y_pred = group_lasso.predict(X_transformed_scaled)
                 group_lasso_coef = group_lasso.coef_
+
+                # Debugging: Print shape and denominator for adj_r2
+                n_samples, n_features = X_transformed_scaled.shape
+                n_features = n_features/  6
+                print(f"   - Debug: X_transformed_scaled shape: {n_samples} samples, {n_features} features")
+                print(f"   - Debug: Denominator for Adj R^2: {n_samples} - {n_features} - 1 = {n_samples - n_features - 1}")
+
+                # R^2, adjR^2 계산, (Y, Y_hat) 그림 추가
+                r2 = r2_score(Y, y_pred)
+                if (n_samples - n_features - 1) > 0:
+                    adj_r2 = 1 - ((1 - r2) * (n_samples - 1) / (n_samples - n_features - 1))
+                else:
+                    adj_r2 = "N/A" # Adjusted R^2 cannot be calculated
+                
+                print(f"   - R^2: {r2:.4f}")
+                print(f"   - Adjusted R^2: {adj_r2:.4f}")
+
+                plt.figure(figsize=(8, 6))
+                sns.regplot(x=Y, y=y_pred, ci=None, line_kws={'color': 'red', 'linestyle': '--'})
+                plt.xlabel("Actual Y")
+                plt.ylabel("Predicted Y")
+                adj_r2_display = f'{adj_r2:.3f}' if not isinstance(adj_r2, str) else str(adj_r2)
+                plt.title(f'Cluster {cluster_id} ({center_point}): Actual vs. Predicted (Adj R2: {adj_r2_display})')
+                plt.grid(True)
+                plt.savefig(f'figures/cluster_{cluster_id}_actual_vs_predicted.png', dpi=300)
+                #plt.show()
+                plt.close()
 
                 chosen_features_by_group = {}
                 nonzero_counter = 0
@@ -170,10 +201,10 @@ class Regression:
                         chosen_features_by_group[original_name].append((transformed_name, coef))
 
                 if not chosen_features_by_group:
-                    print("❌ 모든 그룹의 계수가 0이 되어 선택된 특성이 없습니다.")
+                    print("모든 그룹의 계수가 0이 되어 선택된 특성이 없습니다.")
                     print(f"   (Lasso alpha 값을 줄여보세요: group_alpha={self.args.group_alpha}, l1_reg={self.args.alpha})")
                 else:
-                    print(f"✅ 총 {len(X.columns)}개 그룹 중 {len(chosen_features_by_group)}개 그룹이 선택되었습니다.")
+                    print(f"총 {len(X.columns)}개 그룹 중 {len(chosen_features_by_group)}개 그룹이 선택되었습니다.")
                     self._visualize_coefficients(chosen_features_by_group, cluster_id, center_point)
                 
                 print(f"   - 살아남은 특성 개수:  {nonzero_counter} (lambda: {self.args.group_alpha}, alpha: {self.args.alpha})")
