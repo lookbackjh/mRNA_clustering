@@ -9,15 +9,18 @@ from sklearn.preprocessing import StandardScaler
 from group_lasso import GroupLasso
 
 class Regression:
+    UNPENALIZED_GROUP_ID = 100000 
     """
     클러스터링 결과를 기반으로 회귀 분석(OLS, Group Lasso)을 수행하는 클래스.
     """
-    def __init__(self, args, clustering, feature_dict=None):
+    def __init__(self, args, clustering, feature_dict=None, reference_variables=None, target_features=None):
         self.args = args
         self.clustered_data = clustering.data
         self.c_nearest_points = clustering.nearest_samples_dict
         self.feature_dict = feature_dict if feature_dict is not None else {}
-        self.data_for_regression = None # 분석 전 데이터 준비를 위해 None으로 초기화
+        self.reference_variables = reference_variables if reference_variables is not None else []
+        self.target_features = target_features if target_features is not None else []
+        self.data_for_regression = None 
 
     def _get_data_for_regression(self):
         """
@@ -34,9 +37,9 @@ class Regression:
         data_alzheimer = transposed_data.iloc[19:29, :]
 
         # status 열을 추가하며 데이터를 수직으로 결합합니다.
-        data_normal['status'] = 'normal'
-        data_abnormal['status'] = 'abnormal'
-        data_alzheimer['status'] = 'alzheimer'
+        data_normal.loc[:, 'status'] = 'normal'
+        data_abnormal.loc[:, 'status'] = 'abnormal'
+        data_alzheimer.loc[:, 'status'] = 'alzheimer'
 
         # 최종 데이터를 생성하고 클래스 속성으로 저장합니다.
         self.data_for_regression = pd.concat([data_normal, data_abnormal, data_alzheimer], axis=0)
@@ -58,6 +61,10 @@ class Regression:
         abnormal_mask = (indices >= 10) & (indices < 19)
         alzheimer_mask = indices >= 19
 
+        # feature_dict의 역매핑을 생성하여 특성 이름으로 인덱스를 찾을 수 있도록 합니다.
+        # feature_dict는 {인덱스: 이름} 형태이므로, {이름: 인덱스} 형태로 변환합니다.
+        feature_name_to_idx = {name: idx for idx, name in self.feature_dict.items()}
+
         for idx, col in enumerate(X.columns):
             col_vector = X[col]
             zeromask = col_vector < self.args.count_threshold
@@ -72,13 +79,22 @@ class Regression:
                 f"{col}_A_nonzero": col_vector.where(alzheimer_mask & nonzeromask, 0),
             }
             transformed_dfs.append(pd.DataFrame(temp_data))
-            group_indicators.extend([idx] * 6)
+            
+            # 현재 특성(col)이 reference_variables에 포함되는지 확인합니다.
+            # feature_dict를 사용하여 col(숫자 인덱스)에 해당하는 실제 특성 이름을 찾습니다.
+            current_feature_name = self.feature_dict.get(col, str(col)) # col이 숫자가 아닐 경우를 대비해 str(col) 사용
+            
+            if current_feature_name in self.reference_variables:
+                # reference_variables에 해당하는 특성은 그룹 지시자를 UNPENALIZED_GROUP_ID로 설정하여 페널티를 받지 않도록 합니다.
+                group_indicators.extend([self.UNPENALIZED_GROUP_ID] * 6)
+            else:
+                group_indicators.extend([idx] * 6)
 
         # 분해된 모든 특성들을 한 번에 결합합니다.
         transformed_data = pd.concat(transformed_dfs, axis=1)
         return transformed_data, group_indicators
 
-    def _visualize_coefficients(self, chosen_features_by_group, cluster_id, center_point):
+    def _visualize_coefficients(self, chosen_features_by_group, analysis_id, center_point):
         """
         선택된 특성들의 계수를 막대그래프로 시각화하고 파일로 저장합니다.
         
@@ -108,46 +124,88 @@ class Regression:
         colors = ['#3498db' if c > 0 else '#e74c3c' for c in df_display['Coefficient']]
         plt.barh(df_display['Feature'], df_display['Coefficient'], color=colors)
 
-        plt.title(f'Cluster {cluster_id}: center point {center_point} (Feature Coefficients)', fontsize=16)
+        plt.title(f'{analysis_id}: center point {center_point} (Feature Coefficients)', fontsize=16)
         plt.xlabel('Coefficient', fontsize=12)
         plt.ylabel('Feature', fontsize=12)
         plt.grid(axis='x', linestyle='--', alpha=0.7)
         plt.tight_layout()
         
         # 그림을 파일로 먼저 저장한 후 화면에 표시합니다.
-        plt.savefig(f'figures/cluster_{cluster_id}_coefficients.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'figures/{analysis_id}_coefficients.png', dpi=300, bbox_inches='tight')
         #plt.show()
         plt.close() # Figure 객체를 메모리에서 명시적으로 닫아줍니다.
 
     def do_lasso_regression(self):
         """
-        클러스터별 Group Lasso 또는 일반 Lasso 회귀분석을 수행합니다.
+        클러스터링 결과를 기반으로 Group Lasso 회귀분석을 수행합니다.
+        main.py에서 target_features가 제공되었든 아니든, Clustering 객체는
+        적절한 클러스터(c_nearest_points)를 계산했다고 가정합니다.
+        이 메서드는 그 결과를 일관되게 사용하여 각 클러스터에 대한 회귀분석을 수행합니다.
         """
         self.data_for_regression = self._get_data_for_regression()
         
+        # feature_dict의 역매핑을 생성하여 특성 이름으로 인덱스를 찾을 수 있도록 합니다.
+        feature_name_to_idx = {name: idx for idx, name in self.feature_dict.items()}
+
+        # c_nearest_points 딕셔너리를 순회하며 각 클러스터에 대해 분석을 수행합니다.
         for cluster_id, feature_indices in self.c_nearest_points.items():
-            print(f"\n>>>클러스터 {cluster_id}에 대한 Lasso 회귀 분석 시작...")
+            
+            if not feature_indices:
+                print(f"경고: 클러스터 {cluster_id}에 할당된 피처가 없습니다. 건너뜁니다.")
+                continue
 
-            y_index = feature_indices[0]
+            # 클러스터의 첫 번째 포인트를 타겟 변수(Y)로 사용합니다.
+            target_feature_idx = feature_indices[0]
+            current_target_name = self.feature_dict.get(target_feature_idx, f"Feature_{target_feature_idx}")
+
+            print(f"\n>>> 클러스터 {cluster_id} (타겟: '{current_target_name}')에 대한 Lasso 회귀 분석 시작...")
+
+            # Y는 현재 타겟 변수입니다.
+            Y = self.data_for_regression.iloc[:, target_feature_idx]
+
+            # 설명 변수(X)는 클러스터의 나머지 포인트들과 reference_variables를 포함합니다.
             x_indices = feature_indices[1: 1 + self.args.num_nearest_points]
+            
+            combined_x_indices = set(x_indices)
+            for ref_var_name in self.reference_variables:
+                if ref_var_name in feature_name_to_idx:
+                    combined_x_indices.add(feature_name_to_idx[ref_var_name])
+            
+            final_x_indices = sorted(list(combined_x_indices))
+            
+            # 타겟 변수가 설명 변수 목록에 포함되지 않도록 확인합니다.
+            if target_feature_idx in final_x_indices:
+                final_x_indices.remove(target_feature_idx)
 
-            Y = self.data_for_regression.iloc[:, y_index]
-            X = self.data_for_regression.iloc[:, x_indices].copy()
-            print(f"   - Y (target) for cluster {cluster_id}:\n{Y.head()}")
-            print(f"   - X (features) shape for cluster {cluster_id}: {X.shape}") 
+            if not final_x_indices:
+                print(f"경고: 클러스터 {cluster_id}에 대한 설명 변수를 찾을 수 없습니다. 건너뜁니다.")
+                continue
+                
+            print(f"   - Target Y: {current_target_name} (Index: {target_feature_idx})")
+            print(f"   - Explanatory X indices: {final_x_indices}")
+
+            X = self.data_for_regression.iloc[:, final_x_indices].copy()
+            
             X_transformed, group_indicators = self._tranform_data_for_lasso(X)
 
             scaler = StandardScaler()
             X_transformed_scaled = scaler.fit_transform(X_transformed)
-            center_point = self.feature_dict[feature_indices[0]]
+            
+            center_point_display = current_target_name
 
             if self.args.do_grouplasso:
-                print(f"--- 클러스터 {cluster_id} Group Lasso 회귀 분석 시작 ---")
-                print('center point:', center_point)
+                print(f"--- Group Lasso 회귀 분석 시작 (타겟: {current_target_name}) ---")
                 
+                group_reg_dict = {}
+                for g in set(group_indicators):
+                    if g == self.UNPENALIZED_GROUP_ID:
+                        group_reg_dict[g] = 0.0
+                    else:
+                        group_reg_dict[g] = self.args.group_alpha
+
                 group_lasso = GroupLasso(
                     groups=group_indicators, 
-                    group_reg=self.args.group_alpha, 
+                    group_reg=group_reg_dict, 
                     l1_reg=self.args.alpha, 
                     supress_warning=True
                 )
@@ -155,31 +213,26 @@ class Regression:
                 y_pred = group_lasso.predict(X_transformed_scaled)
                 group_lasso_coef = group_lasso.coef_
 
-                # Debugging: Print shape and denominator for adj_r2
-                n_samples, n_features = X_transformed_scaled.shape
-                n_features = n_features/  6
-                print(f"   - Debug: X_transformed_scaled shape: {n_samples} samples, {n_features} features")
-                print(f"   - Debug: Denominator for Adj R^2: {n_samples} - {n_features} - 1 = {n_samples - n_features - 1}")
-
-                # R^2, adjR^2 계산, (Y, Y_hat) 그림 추가
+                n_samples = X_transformed_scaled.shape[0]
+                n_features_for_adj_r2 = len(final_x_indices)
+                
                 r2 = r2_score(Y, y_pred)
-                if (n_samples - n_features - 1) > 0:
-                    adj_r2 = 1 - ((1 - r2) * (n_samples - 1) / (n_samples - n_features - 1))
+                if (n_samples - n_features_for_adj_r2 - 1) > 0:
+                    adj_r2 = 1 - ((1 - r2) * (n_samples - 1) / (n_samples - n_features_for_adj_r2 - 1))
                 else:
-                    adj_r2 = "N/A" # Adjusted R^2 cannot be calculated
+                    adj_r2 = "N/A"
                 
                 print(f"   - R^2: {r2:.4f}")
-                print(f"   - Adjusted R^2: {adj_r2:.4f}")
+                print(f"   - Adjusted R^2: {adj_r2 if isinstance(adj_r2, str) else f'{adj_r2:.4f}'}")
 
                 plt.figure(figsize=(8, 6))
                 sns.regplot(x=Y, y=y_pred, ci=None, line_kws={'color': 'red', 'linestyle': '--'})
                 plt.xlabel("Actual Y")
                 plt.ylabel("Predicted Y")
                 adj_r2_display = f'{adj_r2:.3f}' if not isinstance(adj_r2, str) else str(adj_r2)
-                plt.title(f'Cluster {cluster_id} ({center_point}): Actual vs. Predicted (Adj R2: {adj_r2_display})')
+                plt.title(f'Cluster {cluster_id} - Target: {current_target_name} (Adj R2: {adj_r2_display})')
                 plt.grid(True)
-                plt.savefig(f'figures/cluster_{cluster_id}_actual_vs_predicted.png', dpi=300)
-                #plt.show()
+                plt.savefig(f'figures/cluster_{cluster_id}_target_{current_target_name}_actual_vs_predicted.png', dpi=300)
                 plt.close()
 
                 chosen_features_by_group = {}
@@ -188,12 +241,11 @@ class Regression:
                 original_feature_names = X.columns
                 transformed_feature_names = X_transformed.columns
                 
-                # 계수가 0이 아닌 특성들을 분석합니다.
                 for i, coef in enumerate(group_lasso_coef):
                     if coef != 0:
                         nonzero_counter += 1
                         group_idx = group_indicators[i]
-                        original_name = original_feature_names[group_idx]
+                        original_name = self.feature_dict.get(original_feature_names[group_idx], original_feature_names[group_idx])
                         transformed_name = transformed_feature_names[i]
 
                         if original_name not in chosen_features_by_group:
@@ -205,14 +257,15 @@ class Regression:
                     print(f"   (Lasso alpha 값을 줄여보세요: group_alpha={self.args.group_alpha}, l1_reg={self.args.alpha})")
                 else:
                     print(f"총 {len(X.columns)}개 그룹 중 {len(chosen_features_by_group)}개 그룹이 선택되었습니다.")
-                    self._visualize_coefficients(chosen_features_by_group, cluster_id, center_point)
+                    analysis_id = f"cluster_{cluster_id}_{current_target_name.replace(':', '_')}"
+                    self._visualize_coefficients(chosen_features_by_group, analysis_id, center_point_display)
                 
                 print(f"   - 살아남은 특성 개수:  {nonzero_counter} (lambda: {self.args.group_alpha}, alpha: {self.args.alpha})")
                 print(f"   - 계수가 0인 특성 개수: {len(group_lasso_coef) - nonzero_counter} (lambda: {self.args.group_alpha}, alpha: {self.args.alpha})")
 
             else:
                 # 일반 Lasso 회귀분석 부분
-                print(f"--- 클러스터 {cluster_id} Lasso 회귀 분석 시작 ---")
+                print(f"--- Lasso 회귀 분석 시작 (타겟: {current_target_name}) ---")
                 lasso = Lasso(alpha=self.args.alpha, max_iter=1000)
                 lasso.fit(X_transformed_scaled, Y)
                 lasso_coef = lasso.coef_

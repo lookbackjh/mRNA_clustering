@@ -1,9 +1,6 @@
-import pandas as pd
-import numpy as np
 from src.preprocess import Preprocess
 from src.clustering import Clustering
 from src.feature_selector import FDRFeatureSelector
-
 from src.regression import Regression
 
 import argparse
@@ -22,8 +19,11 @@ def parse_args():
     parser.add_argument('--to_split', type=bool, default=True, help='Whether to split the data ')
     parser.add_argument('--num_features_to_display', type=int, default=20, help='Number of features to display after FDR correction')
     parser.add_argument('--alpha', type=float, default=0.01, help='Alpha value for lasso regression')
-    parser.add_argument('--group_alpha', type=float, default=0.05, help='Alpha value for group lasso regression')
+    parser.add_argument('--group_alpha', type=float, default=0.1, help='Alpha value for group lasso regression')
     parser.add_argument('--do_grouplasso', type=bool, default=True, help='boolean to decide whether to do group lasso or not')
+    parser.add_argument('--reference_variables', nargs='*', default=['hsa-miR-103a-3p', 'hsa-miR-25-3p'], help='List of reference variables (feature names) to be unpenalized in group lasso.') #기본참여변수설정
+    parser.add_argument('--target_features', nargs='*', default=['hsa-mir-temp_1_1', 'hsa-mir-temp_3_1', 'hsa-mir-temp_4_1', 'hsa-mir-temp_5_1'], help='List of feature names to be used as target variables for regression. If empty, cluster centers will be used.') # 'hsa-mir-temp_1_1', 'hsa-mir-temp_3_1', 'hsa-mir-temp_4_1', 'hsa-mir-temp_5_1'
+    parser.add_argument('--num_correlated_features', type=int, default=20, help='Number of top correlated features to select as explanatory variables when target_features are specified.')
     #parser.add_argument('--num_features_to_display', type=int, default=20, help='Number of features to display  correction')
 
     return parser.parse_args()
@@ -39,11 +39,18 @@ def main():
     fdr_feature_selector.select_features()  # Select features based on FDR
     fdr_feature_selector.display_sorted_features()  # Display sorted features by p-value
 
-    clustering= Clustering(args, data)
-    #clustering.optimal_cluster_num_check()  # Check for optimal number of clusters
-    clustering.kmeans(n_clusters=args.num_clusters)  # Perform KMeans clustering
+    #print(f"Debug: preprocessor.feature_dict: {preprocessor.feature_dict}")
 
-    regression = Regression(args,clustering,preprocessor.feature_dict)
+    clustering = Clustering(args, data, preprocessor.feature_dict)
+    # clustering.optimal_cluster_num_check()  # Check for optimal number of clusters
+
+    # target_features가 있으면 해당 피처를 중심으로 클러스터링, 없으면 일반 KMeans
+    if args.target_features:
+        clustering.kmeans(target_features=args.target_features)
+    else:
+        clustering.kmeans(n_clusters=args.num_clusters)
+
+    regression = Regression(args, clustering, preprocessor.feature_dict, args.reference_variables, args.target_features)
     regression.do_lasso_regression()  # Process data for regression
     #regression._get_data_for_lasso() # Perform lasso regression on the clustered data
 

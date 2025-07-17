@@ -9,13 +9,14 @@ from scipy.spatial import distance
 from sklearn.manifold import MDS
 
 class Clustering:
-    def __init__(self, args, data):
+    def __init__(self, args, data, feature_dict=None):
         """
         객체 생성 시에는 입력값만 저장하고, 실제 계산은 하지 않습니다.
         결과를 캐싱할 비공개(private) 속성들을 None으로 초기화합니다.
         """
         self.args = args
         self.data = data.copy() # 원본 데이터 수정을 방지하기 위해 복사본 사용
+        self.feature_dict = feature_dict if feature_dict is not None else {}
         
         # ★ 1. 결과물을 캐싱하기 위한 '비공개' 속성들을 선언합니다.
         self._distance_matrix = None
@@ -111,16 +112,36 @@ class Clustering:
         plt.tight_layout()
         plt.show()
 
-    def kmeans(self, n_clusters=3):
+    def kmeans(self, n_clusters=3, target_features=None):
         """
         K-Means 클러스터링을 수행합니다.
-        이 메서드 역시 필요한 데이터를 속성처럼 접근하기만 하면 됩니다.
+        target_features가 제공되면, 해당 특성을 초기 클러스터 중심으로 사용합니다.
         """
-        print(f"\n--- Performing K-Means with {n_clusters} clusters ---")
-        kmeans = KMeans(n_clusters=n_clusters, init='k-means++', n_init=10, random_state=42)
-        
-        # ★ 6. self.low_dimensional_df에 접근하는 순간, 필요시 모든 계산이 자동으로 수행됩니다.
         X = self.low_dimensional_df
+        
+        if target_features and self.feature_dict:
+            print(f"\n--- Performing K-Means using specified target features as initial centers ---")
+            # feature_dict의 역매핑을 생성합니다.
+            feature_name_to_idx = {name: idx for idx, name in self.feature_dict.items()}
+            
+            # target_features 이름에 해당하는 인덱스를 찾습니다.
+            initial_center_indices = [feature_name_to_idx[name] for name in target_features if name in feature_name_to_idx]
+            
+            if not initial_center_indices:
+                raise ValueError("Target features not found in the data.")
+
+            # 저차원 표현에서 해당 인덱스의 데이터를 초기 중심으로 설정합니다.
+            initial_centers = X.iloc[initial_center_indices].values
+            n_clusters = len(initial_centers)
+            
+            print(f"Using {n_clusters} target features as initial centers.")
+
+            kmeans = KMeans(n_clusters=n_clusters, init=initial_centers, n_init=1, random_state=42)
+
+        else:
+            print(f"\n--- Performing K-Means with {n_clusters} clusters (k-means++) ---")
+            kmeans = KMeans(n_clusters=n_clusters, init='k-means++', n_init=10, random_state=42)
+        
         self.cluster_labels = kmeans.fit_predict(X)
         self.cluster_centers = kmeans.cluster_centers_
         self.data['cluster'] = self.cluster_labels
@@ -129,9 +150,13 @@ class Clustering:
         self.nearest_samples_dict = {}
         dists = distance.cdist(X, self.cluster_centers)
         for i in range(n_clusters):
+            # 클러스터 중심에서 가장 가까운 원본 데이터 포인트를 찾습니다.
+            # cdist는 X의 각 포인트와 cluster_centers 간의 거리를 계산합니다.
+            # argsort는 각 클러스터 중심(열)에 대해 가장 가까운 X 포인트(행)의 인덱스를 오름차순으로 정렬합니다.
             nearest_indices = np.argsort(dists[:, i])
+            
+            # num_nearest_points 만큼의 인덱스를 저장합니다.
             num_points = self.args.num_nearest_points if hasattr(self.args, 'num_nearest_points') else 10
             self.nearest_samples_dict[i] = nearest_indices[:num_points].tolist()
         
         print("Clustering complete. Results are stored in the object.")
-        # 이 메서드는 객체의 상태를 변경하는 '명령'이므로 아무것도 반환하지 않는 것이 더 좋습니다.
