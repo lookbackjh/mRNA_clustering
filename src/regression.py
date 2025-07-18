@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.preprocessing import StandardScaler
 from group_lasso import GroupLasso
+from sklearn.model_selection import LeaveOneOut
+from collections import defaultdict
 
 class Regression:
     UNPENALIZED_GROUP_ID = 100000 
@@ -271,6 +273,105 @@ class Regression:
                 lasso_coef = lasso.coef_
                 print(f"Lasso Coefficients: {lasso_coef}")
 
+    def perform_loocv_lasso(self):
+        """
+        Leave-One-Out Cross-Validation (LOOCV)을 사용하여 Group Lasso 회귀분석을 수행하고,
+        변수 선택의 안정성을 평가합니다.
+        """
+        self.data_for_regression = self._get_data_for_regression()
+        feature_name_to_idx = {name: idx for idx, name in self.feature_dict.items()}
+
+        for cluster_id, feature_indices in self.c_nearest_points.items():
+            if not feature_indices:
+                print(f"경고: 클러스터 {cluster_id}에 할당된 피처가 없습니다. 건너뜁니다.")
+                continue
+
+            target_feature_idx = feature_indices[0]
+            current_target_name = self.feature_dict.get(target_feature_idx, f"Feature_{target_feature_idx}")
+
+            print(f"\n>>> 클러스터 {cluster_id} (타겟: '{current_target_name}')에 대한 LOOCV Group Lasso 분석 시작...")
+
+            Y_full = self.data_for_regression.iloc[:, target_feature_idx]
+            
+            x_indices = feature_indices[1: 1 + self.args.num_nearest_points]
+            combined_x_indices = set(x_indices)
+            for ref_var_name in self.reference_variables:
+                if ref_var_name in feature_name_to_idx:
+                    combined_x_indices.add(feature_name_to_idx[ref_var_name])
+            final_x_indices = sorted(list(combined_x_indices))
+            if target_feature_idx in final_x_indices:
+                final_x_indices.remove(target_feature_idx)
+
+            if not final_x_indices:
+                print(f"경고: 클러스터 {cluster_id}에 대한 설명 변수를 찾을 수 없습니다. 건너뜁니다.")
+                continue
+
+            X_full = self.data_for_regression.iloc[:, final_x_indices].copy()
+            
+            # LOOCV를 위한 데이터 변환은 루프 밖에서 한 번만 수행
+            X_transformed_full, group_indicators_full = self._tranform_data_for_lasso(X_full)
+
+            loo = LeaveOneOut()
+            selected_feature_counts = defaultdict(int)
+            total_iterations = 0
+
+            group_reg_dict = {}
+            for g in set(group_indicators_full):
+                if g == self.UNPENALIZED_GROUP_ID:
+                    group_reg_dict[g] = 0.0
+                else:
+                    group_reg_dict[g] = self.args.group_alpha
+
+            for train_index, test_index in loo.split(X_transformed_full):
+                total_iterations += 1
+                X_train, X_test = X_transformed_full.iloc[train_index], X_transformed_full.iloc[test_index]
+                Y_train, Y_test = Y_full.iloc[train_index], Y_full.iloc[test_index]
+                
+                # 스케일러는 훈련 데이터에만 fit하고, 훈련/테스트 데이터 모두에 transform
+                scaler = StandardScaler()
+                X_train_scaled = scaler.fit_transform(X_train)
+                
+                # Group Lasso 모델 학습
+                group_lasso = GroupLasso(
+                    groups=group_indicators_full, 
+                    group_reg=group_reg_dict, 
+                    l1_reg=self.args.alpha, 
+                    supress_warning=True
+                )
+                group_lasso.fit(X_train_scaled, Y_train)
+                
+                # 선택된 변수 기록
+                for i, coef in enumerate(group_lasso.coef_):
+                    if coef != 0:
+                        # 원래 특성 이름으로 매핑하여 저장
+                        original_col_idx = X_full.columns[group_indicators_full[i]] # X_full의 원래 컬럼 인덱스
+                        original_feature_name = self.feature_dict.get(original_col_idx, str(original_col_idx))
+                        selected_feature_counts[original_feature_name] += 1
+            
+            print(f"--- 클러스터 {cluster_id} (타겟: '{current_target_name}') LOOCV 결과 ---")
+            if total_iterations == 0:
+                print("LOOCV 반복이 수행되지 않았습니다. 샘플 수가 부족할 수 있습니다.")
+                continue
+
+            print(f"총 LOOCV 반복 횟수: {total_iterations}")
+            
+            # 선택 빈도에 따라 정렬하여 출력
+            sorted_selected_features = sorted(selected_feature_counts.items(), key=lambda item: item[1], reverse=True)
+            
+            print("\n변수 선택 빈도:")
+            for feature, count in sorted_selected_features:
+                percentage = (count / total_iterations) * 100
+                print(f"  - {feature}: {count}회 선택 ({percentage:.2f}%)")
+            
+            # 안정적으로 선택된 변수 (예: 80% 이상 선택)
+            stable_selected_features = {f: c for f, c in selected_feature_counts.items() if (c / total_iterations) * 100 >= 80}
+            if stable_selected_features:
+                print("\n안정적으로 선택된 변수 (80% 이상):")
+                for feature, count in stable_selected_features.items():
+                    print(f"  - {feature} ({count}회)")
+            else:
+                print("\n80% 이상 안정적으로 선택된 변수가 없습니다.")
+
     def run_regression_analysis(self):
         """
         Statsmodels를 사용하여 클러스터별 OLS 회귀분석을 수행하고 결과를 출력합니다.
@@ -295,7 +396,11 @@ class Regression:
             X = pd.get_dummies(X, columns=['status'], drop_first=True, dtype=float)
 
             # statsmodels는 절편을 자동으로 추가하지 않으므로, 상수항을 수동으로 추가합니다.
-            X_with_const = sm.add_constant(X, has_constant='add')
+            X_with_const_np = sm.add_constant(X, has_constant='add')
+            
+            # NumPy 배열을 DataFrame으로 변환하여 rename 메소드를 사용할 수 있도록 합니다.
+            # 컬럼 이름은 기존 X의 컬럼과 'const'를 합쳐서 사용합니다.
+            X_with_const = pd.DataFrame(X_with_const_np, columns=X.columns.tolist() + ['const'], index=X.index)
             
             # feature_dict를 사용하여 숫자 인덱스 컬럼명을 실제 특성 이름으로 변경합니다.
             # get(col, col)을 사용하여 딕셔너리에 없는 컬럼명은 그대로 유지합니다(예: 'const', 'status_normal' 등).
